@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { defineAsyncComponent } from 'vue';
+import { computed, defineAsyncComponent, ref } from 'vue';
 import { currentLocale, primaryLocale } from 'virtual:vue-internationalization';
 import StaticPanel from './components/StaticPanel.vue';
 
 const AsyncPanel = defineAsyncComponent(() => import('./components/AsyncPanel.vue'));
+const n = ref(3);
 const scriptMessage = $locale.value.sfc.scriptMessage;
-const scriptApples = $l.value.sfc.nApples({ n: 3 });
+const scriptApples = computed(() => $l.value.sfc.nApples({ n: n.value }));
 
 function switchLocale(locale: string): void {
 	const url = new URL(window.location.href);
@@ -24,9 +25,10 @@ function switchLocale(locale: string): void {
   <main :class="$style.page">
     <h1>{{ $locale.sfc.title }}</h1>
     <p>{{ $locale.env.fuga }}</p>
-    <p>{{ $l.sfc.nApples({ n: 3 }) }}</p>
+    <p>{{ $l.sfc.nApples({ n }) }}</p>
     <p>{{ scriptMessage }}</p>
     <p>{{ scriptApples }}</p>
+    <button type="button" @click="n++">+1</button>
     <StaticPanel />
     <AsyncPanel />
     <button type="button" :disabled="currentLocale === 'ja-JP'" @click="switchLocale('ja-JP')">日本語</button>
