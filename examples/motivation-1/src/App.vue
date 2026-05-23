@@ -1,7 +1,22 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, ref } from 'vue';
-import { currentLocale, primaryLocale } from 'virtual:vue-internationalization';
+import { currentLocale, defineInternationalization, primaryLocale } from 'virtual:vue-internationalization';
 import StaticPanel from './components/StaticPanel.vue';
+
+defineInternationalization({
+	'ja-JP': {
+		scriptDefined: {
+			title: 'script-defined locale message',
+			greeting: (values?: { name?: string }) => `こんにちは ${values?.name ?? '名無し'}、script 内の関数翻訳です`,
+		},
+	},
+	'en-US': {
+		scriptDefined: {
+			title: 'script-defined locale message',
+			greeting: (values?: { name?: string }) => `Hello ${values?.name ?? 'there'}, this came from a script function`,
+		},
+	},
+});
 
 const AsyncPanel = defineAsyncComponent(() => import('./components/AsyncPanel.vue'));
 const n = ref(3);
@@ -52,6 +67,10 @@ function switchLocale(locale: string): void {
         <div>
           <dt>linked</dt>
           <dd>{{ $l.sfc.preview.linked() }}</dd>
+        </div>
+        <div>
+          <dt>{{ $locale.sfc.scriptDefined.title }}</dt>
+          <dd>{{ $l.sfc.scriptDefined.greeting({ name: previewUser }) }}</dd>
         </div>
       </dl>
     </section>
