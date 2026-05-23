@@ -18,6 +18,7 @@ import {
 import {
 	mergeLocaleDictionaries,
 	parseLocaleDictionaryForDiagnostics,
+	parseScriptLocaleDictionaries,
 	type LocaleDictionaryDiagnostic,
 } from './parse.js';
 import type { VueLanguagePlugin } from '@vue/language-core';
@@ -38,12 +39,12 @@ const plugin: VueLanguagePlugin<VueInternationalizationVolarPluginConfig> = ({ c
 		name: 'vue-internationalization',
 		order: 1,
 		resolveEmbeddedCode(fileName, ir, embeddedFile) {
-			if (!/^script_(js|jsx|ts|tsx)$/.test(embeddedFile.id) || !hasLocaleBlocks(ir.customBlocks)) {
+			if (!/^script_(js|jsx|ts|tsx)$/.test(embeddedFile.id) || !hasLocaleSources(ir.content, ir.customBlocks)) {
 				return;
 			}
 
 			const primaryLocale = config.primaryLocale ?? getFirstLocale(ir.customBlocks);
-			const moduleDictionary = getLocaleDictionary(cache, ir.customBlocks, primaryLocale);
+			const moduleDictionary = getLocaleDictionary(cache, ir.content, fileName, ir.customBlocks, primaryLocale);
 			const globalDictionary = getGlobalDictionary(cache, config, primaryLocale, fileName);
 			const generatedTypes = getGeneratedTypes(cache, config, globalDictionary, moduleDictionary);
 			const { localeRefType, localeScopeType, localizerRefType, localizerScopeType } = generatedTypes;
@@ -109,8 +110,8 @@ function createVolarCache(): VolarCache {
 	};
 }
 
-function hasLocaleBlocks(customBlocks: readonly { type: string }[]): boolean {
-	return customBlocks.some((block) => block.type === 'locale');
+function hasLocaleSources(content: string, customBlocks: readonly { type: string }[]): boolean {
+	return customBlocks.some((block) => block.type === 'locale') || content.includes('defineInternationalization');
 }
 
 function insertAfter(content: Code[], marker: string, insertion: string): void {
@@ -382,21 +383,28 @@ function getGeneratedTypes(
 
 function getLocaleDictionary(
 	cache: VolarCache,
+	content: string,
+	fileName: string,
 	customBlocks: readonly LocaleCustomBlock[],
 	primaryLocale: string | undefined,
 ): LocaleDictionary {
 	const localeBlocks = customBlocks.filter((block) => block.type === 'locale' && typeof block.attrs.locale === 'string');
+	const scriptMessages = parseScriptLocaleDictionaries(content, fileName);
 
-	if (localeBlocks.length === 0) {
+	if (localeBlocks.length === 0 && Object.keys(scriptMessages).length === 0) {
 		return {};
 	}
 
 	const primaryBlock = localeBlocks.find((item) => item.attrs.locale === primaryLocale);
-	const locale = String(primaryBlock?.attrs.locale ?? localeBlocks[0].attrs.locale);
+	const primaryBlockLocale = primaryBlock ? String(primaryBlock.attrs.locale) : undefined;
+	const blockLocale = localeBlocks.length > 0 ? String(localeBlocks[0].attrs.locale) : undefined;
+	const scriptLocale = primaryLocale && scriptMessages[primaryLocale] ? primaryLocale : String(Object.keys(scriptMessages)[0]);
+	const locale = primaryBlockLocale ?? blockLocale ?? scriptLocale;
 	const blocks = localeBlocks.filter((item) => item.attrs.locale === locale);
 	const key = [
 		String(primaryLocale ?? ''),
 		locale,
+		content,
 		...blocks.map((block) => [
 			block.lang ?? 'yaml',
 			block.content,
@@ -415,6 +423,7 @@ function getLocaleDictionary(
 				block.lang ?? 'yaml',
 				`<locale locale="${locale}">`,
 			).dictionary),
+		scriptMessages[locale] ?? {},
 	);
 	cache.moduleDictionaries.set(key, dictionary);
 	return dictionary;

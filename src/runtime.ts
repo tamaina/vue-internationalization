@@ -176,6 +176,12 @@ export function createInternationalization(options: InternationalizationRuntimeO
 	return instance;
 }
 
+export function defineInternationalization<TMessages extends Partial<Record<string, RuntimeLocaleDictionary>>>(
+	messages: TMessages,
+): TMessages {
+	return messages;
+}
+
 export function setActiveInternationalization(instance: InternationalizationInstance): void {
 	activeInternationalization = instance;
 }

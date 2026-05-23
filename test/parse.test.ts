@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { injectLocaleBinding, parseLocaleDictionary, parseLocaleDictionaryForDiagnostics, stripLocaleBlocks, transformVueSfc } from '../src/parse.js';
+import { injectLocaleBinding, parseLocaleDictionary, parseLocaleDictionaryForDiagnostics, parseScriptLocaleDictionaries, stripLocaleBlocks, transformVueSfc } from '../src/parse.js';
 
 describe('locale SFC parsing', () => {
 	it('parses yaml dictionaries', () => {
@@ -134,6 +134,29 @@ describe('locale SFC parsing', () => {
 		});
 
 		expect(output).toContain('env: { greeting: import("vue-internationalization/runtime").LocaleMessageFunction; };');
+	});
+
+	it('extracts script-defined locale messages', () => {
+		const input = [
+			'<script lang="ts">',
+			'import { defineInternationalization } from "vue-internationalization";',
+			'export const messages = defineInternationalization({',
+			'  "ja-JP": {',
+			'    title: "ほげ",',
+			'    greeting: (values?: { name?: string }) => `こんにちは ${values?.name ?? "名無し"}`,',
+			'  },',
+			'});',
+			'</script>',
+		].join('\n');
+
+		const dictionaries = parseScriptLocaleDictionaries(input, '/repo/src/App.vue');
+		const output = transformVueSfc(input, '/repo/src/App.vue', {
+			primaryLocale: 'ja-JP',
+		});
+
+		expect(dictionaries['ja-JP']?.title).toBe('ほげ');
+		expect(String(dictionaries['ja-JP']?.greeting)).toContain('(values) =>');
+		expect(output).toContain('sfc: { title: () => string; greeting: import("vue-internationalization/runtime").LocaleMessageFunction; };');
 	});
 
 	it('does not inject TypeScript type parameters into JavaScript setup blocks', () => {

@@ -1,8 +1,9 @@
 import { parse as parseSfc } from '@vue/compiler-sfc';
+import ts from 'typescript';
 import YAML from 'yaml';
 import { createLocalizerRefType, createUseLocaleTypeParameters, type LocaleBindingTypes } from './localeTypes.js';
 import { getScriptSetupOpenTag, injectScriptSetup } from './scriptSetup.js';
-import type { LocaleDictionary, ParsedVueLocale, SfcLocaleBlock } from './types.js';
+import type { LocaleDictionary, LocaleMessageFunction, ParsedVueLocale, SfcLocaleBlock } from './types.js';
 import type { YAMLError } from 'yaml';
 
 export type LocaleDictionaryDiagnostic = {
@@ -44,6 +45,7 @@ export function parseVueLocales(code: string, filename: string): ParsedVueLocale
 		code,
 		moduleId: normalizeModuleId(filename),
 		blocks,
+		scriptMessages: parseScriptLocaleDictionaries(code, filename),
 	};
 }
 
@@ -64,6 +66,22 @@ export function parseLocaleDictionary(content: string, lang: string, sourceLabel
 	}
 
 	throw new Error(`Unsupported locale lang "${lang}" in ${sourceLabel}. Use yaml, yml, or json.`);
+}
+
+export function parseScriptLocaleDictionaries(code: string, filename: string): Partial<Record<string, LocaleDictionary>> {
+	const result = parseSfc(code, { filename, pad: false });
+	const messages: Partial<Record<string, LocaleDictionary>> = {};
+
+	for (const script of [result.descriptor.script, result.descriptor.scriptSetup]) {
+		if (!script) {
+			continue;
+		}
+
+		const sourceFile = ts.createSourceFile(filename, script.content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+		visitScriptNode(sourceFile, script.content, `<script>${filename}`, messages);
+	}
+
+	return messages;
 }
 
 export function parseLocaleDictionaryForDiagnostics(
@@ -185,13 +203,13 @@ export function injectLocaleBinding(code: string, types: LocaleBindingTypes = {}
 export function transformVueSfc(code: string, filename: string, types: LocaleBindingTypes = {}): string | undefined {
 	const parsed = parseVueLocales(code, filename);
 
-	if (parsed.blocks.length === 0) {
+	if (parsed.blocks.length === 0 && Object.keys(parsed.scriptMessages).length === 0) {
 		return undefined;
 	}
 
 	return injectLocaleBinding(stripLocaleBlocks(code, filename), {
 		...types,
-		module: getPrimaryLocaleDictionary(parsed.blocks, types.primaryLocale),
+		module: getPrimaryLocaleDictionary(parsed.blocks, types.primaryLocale, parsed.scriptMessages),
 	});
 }
 
@@ -271,6 +289,159 @@ function isPlainDictionary(value: unknown): value is LocaleDictionary {
 	return value != null && typeof value === 'object' && !Array.isArray(value);
 }
 
+function visitScriptNode(
+	node: ts.Node,
+	code: string,
+	sourceLabel: string,
+	messages: Partial<Record<string, LocaleDictionary>>,
+): void {
+	if (ts.isCallExpression(node) && isDefineInternationalizationCallee(node.expression)) {
+		const [argument] = node.arguments;
+
+		if (ts.isObjectLiteralExpression(argument)) {
+			mergeScriptLocaleMessages(messages, parseScriptLocaleRoot(argument, code, sourceLabel));
+		}
+	}
+
+	ts.forEachChild(node, (child) => visitScriptNode(child, code, sourceLabel, messages));
+}
+
+function isDefineInternationalizationCallee(node: ts.Expression): boolean {
+	return ts.isIdentifier(node) && node.text === 'defineInternationalization';
+}
+
+function mergeScriptLocaleMessages(
+	target: Partial<Record<string, LocaleDictionary>>,
+	source: Partial<Record<string, LocaleDictionary>>,
+): void {
+	for (const [locale, dictionary] of Object.entries(source)) {
+		target[locale] = mergeLocaleDictionaries(target[locale] ?? {}, dictionary ?? {});
+	}
+}
+
+function parseScriptLocaleRoot(
+	node: ts.ObjectLiteralExpression,
+	code: string,
+	sourceLabel: string,
+): Partial<Record<string, LocaleDictionary>> {
+	const result: Partial<Record<string, LocaleDictionary>> = {};
+
+	for (const property of node.properties) {
+		if (!ts.isPropertyAssignment(property)) {
+			continue;
+		}
+
+		const locale = getScriptPropertyName(property.name);
+		if (!locale || !ts.isObjectLiteralExpression(property.initializer)) {
+			continue;
+		}
+
+		result[locale] = validateLocaleDictionary(parseScriptLocaleDictionary(property.initializer, code, sourceLabel), `${sourceLabel}: ${locale}`);
+	}
+
+	return result;
+}
+
+function parseScriptLocaleDictionary(
+	node: ts.ObjectLiteralExpression,
+	code: string,
+	sourceLabel: string,
+): LocaleDictionary {
+	const result: LocaleDictionary = {};
+
+	for (const property of node.properties) {
+		if (!ts.isPropertyAssignment(property)) {
+			continue;
+		}
+
+		const key = getScriptPropertyName(property.name);
+		if (!key) {
+			continue;
+		}
+
+		const value = parseScriptLocaleValue(property.initializer, code, sourceLabel);
+		if (value !== undefined) {
+			result[key] = value;
+		}
+	}
+
+	return result;
+}
+
+function parseScriptLocaleValue(node: ts.Expression, code: string, sourceLabel: string): LocaleDictionary[string] | undefined {
+	if (ts.isStringLiteralLike(node)) {
+		return node.text;
+	}
+
+	if (ts.isNumericLiteral(node)) {
+		return Number(node.text);
+	}
+
+	if (node.kind === ts.SyntaxKind.TrueKeyword) {
+		return true;
+	}
+
+	if (node.kind === ts.SyntaxKind.FalseKeyword) {
+		return false;
+	}
+
+	if (node.kind === ts.SyntaxKind.NullKeyword) {
+		return null;
+	}
+
+	if (ts.isObjectLiteralExpression(node)) {
+		return parseScriptLocaleDictionary(node, code, sourceLabel);
+	}
+
+	if (ts.isArrayLiteralExpression(node)) {
+		return node.elements
+			.map((element) => parseScriptLocaleValue(element, code, sourceLabel))
+			.filter((value): value is LocaleDictionary[string] => value !== undefined);
+	}
+
+	if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) {
+		return createMessageFunction(node.getText());
+	}
+
+	return undefined;
+}
+
+function createMessageFunction(source: string): LocaleMessageFunction {
+	const expression = transpileScriptExpression(source);
+	const message = (() => '') as LocaleMessageFunction;
+	Object.defineProperty(message, 'toString', {
+		value: () => expression,
+	});
+	return message;
+}
+
+function transpileScriptExpression(source: string): string {
+	const output = ts.transpileModule(`const __message = ${source};`, {
+		compilerOptions: {
+			target: ts.ScriptTarget.ES2020,
+			module: ts.ModuleKind.ESNext,
+		},
+		fileName: 'vue-internationalization-message.ts',
+	}).outputText.trim();
+	const prefix = 'const __message = ';
+	const start = output.indexOf(prefix);
+	const end = output.lastIndexOf(';');
+
+	if (start < 0 || end < start) {
+		return source;
+	}
+
+	return output.slice(start + prefix.length, end).trim();
+}
+
+function getScriptPropertyName(name: ts.PropertyName): string | undefined {
+	if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) {
+		return name.text;
+	}
+
+	return undefined;
+}
+
 function findCustomBlockRange(code: string, contentStart: number, contentEnd: number, filename: string) {
 	const start = code.lastIndexOf('<locale', contentStart);
 	const closeStart = code.indexOf('</locale>', contentEnd);
@@ -285,14 +456,25 @@ function findCustomBlockRange(code: string, contentStart: number, contentEnd: nu
 	};
 }
 
-function getPrimaryLocaleDictionary(blocks: SfcLocaleBlock[], primaryLocale: string | undefined): LocaleDictionary {
+function getPrimaryLocaleDictionary(
+	blocks: SfcLocaleBlock[],
+	primaryLocale: string | undefined,
+	scriptMessages: Partial<Record<string, LocaleDictionary>> = {},
+): LocaleDictionary {
 	const primaryBlock = primaryLocale ? blocks.find((block) => block.locale === primaryLocale) : undefined;
-	const locale = primaryBlock?.locale ?? (blocks[0] as SfcLocaleBlock).locale;
+	const scriptLocale = primaryLocale && scriptMessages[primaryLocale] ? primaryLocale : Object.keys(scriptMessages)[0];
+	const blockLocale = blocks.length > 0 ? blocks[0].locale : undefined;
+	const locale = primaryBlock?.locale ?? blockLocale ?? scriptLocale;
+
+	if (!locale) {
+		return {};
+	}
+
 	const dictionaries = blocks
 		.filter((block) => block.locale === locale)
 		.map((block) => parseLocaleDictionary(block.content, block.lang, `<locale locale="${block.locale}">`));
 
-	return mergeLocaleDictionaries(...dictionaries);
+	return mergeLocaleDictionaries(...dictionaries, scriptMessages[locale] ?? {});
 }
 
 function isTypeScriptScript(scriptOpenTag: string): boolean {

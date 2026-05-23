@@ -19,4 +19,5 @@ export type ParsedVueLocale = {
 	code: string;
 	moduleId: string;
 	blocks: SfcLocaleBlock[];
+	scriptMessages: Partial<Record<LocaleCode, LocaleDictionary>>;
 };

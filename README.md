@@ -155,20 +155,36 @@ linked message は同じ scope の root から key path を解決します。未
 
 Programmatic dictionary では message function も leaf value として使えます。YAML/JSON の `<locale>` block は静的解析のため文字列辞書のままですが、Vite plugin options や runtime loader で渡す辞書では関数を localizer から呼び出せます。
 
-```ts
-import { createInternationalization } from 'virtual:vue-internationalization';
+SFC では通常の `<script lang="ts">` / `<script setup lang="ts">` の top-level で `defineInternationalization()` を使えます。
 
-const internationalization = createInternationalization({
-	initialLocale: 'en-US',
+```vue
+<script lang="ts">
+import { defineInternationalization } from 'vue-internationalization';
+
+export const messages = defineInternationalization({
+	'ja-JP': {
+		title: 'ほげ',
+		greeting: (values?: { name?: string }) => `こんにちは ${values?.name ?? '名無し'}`,
+	},
+	'en-US': {
+		title: 'foo',
+		greeting: (values?: { name?: string }) => `Hello ${values?.name ?? 'there'}`,
+	},
 });
+</script>
+```
 
-// Runtime loader / plugin global option の辞書値として:
-const messages = {
-	greeting: (values?: { name?: string }) => `Hello ${values?.name ?? 'there'}`,
+Vite plugin options や runtime loader で渡す辞書にも同じ関数を使えます。
+
+```ts
+const global = {
+	'en-US': {
+		greeting: (values?: { name?: string }) => `Hello ${values?.name ?? 'there'}`,
+	},
 };
 ```
 
-message function は `(values?, plural?) => string` です。`buildStrategy: 'inline-chunks'` では関数を `Function.prototype.toString()` で出力するため、外側の closure に依存しない self-contained な関数にしてください。
+message function は `(values?, plural?) => string` です。`buildStrategy: 'inline-chunks'` や script-defined locale 抽出では関数を source として出力するため、外側の closure に依存しない self-contained な関数にしてください。
 
 Component interpolation は `Internationalization` component で扱います。`message` を直接渡すか、`locale` / `scope` / `path` で `$locale` の値を参照します。message 内の `{name}` は、同名 slot があれば slot に置換し、slot がなければ `values` で文字列補間します。
 

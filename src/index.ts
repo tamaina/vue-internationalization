@@ -23,6 +23,7 @@ export type {
 export {
 	Internationalization,
 	createInternationalization,
+	defineInternationalization,
 	formatLocaleTemplate,
 	setActiveInternationalization,
 	useDateTimeFormat,
