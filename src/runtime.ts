@@ -1,5 +1,5 @@
 import type { App, InjectionKey } from 'vue';
-import { computed, inject, reactive, readonly } from 'vue';
+import { computed, hasInjectionContext, inject, reactive, readonly } from 'vue';
 import type { LocaleDictionary } from './types.js';
 
 export type RuntimeLocaleDictionary = LocaleDictionary;
@@ -99,7 +99,9 @@ export function setActiveInternationalization(instance: InternationalizationInst
 }
 
 export function useInternationalization(): InternationalizationInstance {
-  const internationalization = inject(INTERNATIONALIZATION_KEY, activeInternationalization);
+  const internationalization = hasInjectionContext()
+    ? inject(INTERNATIONALIZATION_KEY, activeInternationalization)
+    : activeInternationalization;
 
   if (!internationalization) {
     throw new Error('vue-internationalization is not installed. Call app.use(createInternationalization()).');
@@ -117,13 +119,57 @@ export function useLocale(moduleUrl: string) {
 function resolveLocale(internationalization: InternationalizationInstance, moduleUrl: string) {
   const state = getState(internationalization);
   const current = state.bundles[state.locale];
-  const fallback = state.bundles[state.fallbackLocale];
+  const fallback = state.bundles[state.primaryLocale] ?? state.bundles[state.fallbackLocale];
   const moduleId = normalizeRuntimeModuleUrl(moduleUrl);
 
   return {
-    global: current?.global ?? fallback?.global ?? EMPTY_DICTIONARY,
-    module: current?.modules[moduleId] ?? fallback?.modules[moduleId] ?? EMPTY_DICTIONARY
+    global: createFallbackDictionary(current?.global, fallback?.global, 'global'),
+    module: createFallbackDictionary(current?.modules[moduleId], fallback?.modules[moduleId], 'module')
   };
+}
+
+function createFallbackDictionary(
+  current: RuntimeLocaleDictionary | undefined,
+  fallback: RuntimeLocaleDictionary | undefined,
+  scope: string
+): RuntimeLocaleDictionary {
+  return createDictionaryProxy(current ?? EMPTY_DICTIONARY, fallback ?? EMPTY_DICTIONARY, [scope]);
+}
+
+function createDictionaryProxy(
+  current: RuntimeLocaleDictionary,
+  fallback: RuntimeLocaleDictionary,
+  path: string[]
+): RuntimeLocaleDictionary {
+  return new Proxy(current, {
+    get(target, property) {
+      if (typeof property !== 'string') {
+        return Reflect.get(target, property);
+      }
+
+      const value = getOwnValue(target, property);
+      const fallbackValue = getOwnValue(fallback, property);
+      const nextPath = [...path, property];
+
+      if (isDictionary(value) || isDictionary(fallbackValue)) {
+        return createDictionaryProxy(asDictionary(value), asDictionary(fallbackValue), nextPath);
+      }
+
+      return value ?? fallbackValue ?? `$locale.${nextPath.join('.')}`;
+    }
+  }) as RuntimeLocaleDictionary;
+}
+
+function getOwnValue(dictionary: RuntimeLocaleDictionary, key: string): unknown {
+  return Object.prototype.hasOwnProperty.call(dictionary, key) ? dictionary[key] : undefined;
+}
+
+function isDictionary(value: unknown): value is RuntimeLocaleDictionary {
+  return value != null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function asDictionary(value: unknown): RuntimeLocaleDictionary {
+  return isDictionary(value) ? value : EMPTY_DICTIONARY;
 }
 
 function getState(internationalization: InternationalizationInstance): InternationalizationState {

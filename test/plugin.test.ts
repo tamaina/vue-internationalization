@@ -95,16 +95,21 @@ describe('virtual module generation', () => {
       `const l = ${binding};`,
       'const title = l.module.title;',
       'const globalMessage = l.global.fuga;',
+      'const primaryFallback = l.module.missingPrimary;',
       'const missing = l.module.missing;'
     ].join('');
 
     const replaced = internals.replaceInlineLocaleMemberAccess(
       code,
       'en-US',
+      'ja-JP',
       {
         '/src/App.vue': {
           'en-US': {
             title: 'foo'
+          },
+          'ja-JP': {
+            missingPrimary: 'primary'
           }
         }
       },
@@ -117,7 +122,42 @@ describe('virtual module generation', () => {
 
     expect(replaced).toContain('const title = "foo";');
     expect(replaced).toContain('const globalMessage = "bar";');
-    expect(replaced).toContain('const missing = l.module.missing;');
+    expect(replaced).toContain('const primaryFallback = "primary";');
+    expect(replaced).toContain('const missing = "$locale.module.missing";');
+  });
+
+  it('rewrites template locale access to inline text markers', () => {
+    const code = internals.rewriteInlineLocaleTemplateAccess(
+      '<template><p>{{ $locale.module.title }}</p><p>{{ $locale.global.missing }}</p></template>',
+      '/src/App.vue'
+    );
+
+    expect(code).toContain('__VUE_INTERNATIONALIZATION_INLINE_TEXT__');
+    expect(code).toContain('"module.title"');
+    expect(code).toContain('"global.missing"');
+  });
+
+  it('replaces template inline text markers with primary and key-path fallback', () => {
+    const marker = internals.rewriteInlineLocaleTemplateAccess(
+      '<template>{{ $locale.module.title }} {{ $locale.module.missing }}</template>',
+      '/src/App.vue'
+    );
+    const replaced = internals.replaceInlineLocaleTextAccess(
+      marker,
+      'en-US',
+      'ja-JP',
+      {
+        '/src/App.vue': {
+          'ja-JP': {
+            title: 'ほげ'
+          }
+        }
+      },
+      {}
+    );
+
+    expect(replaced).toContain('"ほげ"');
+    expect(replaced).toContain('"$locale.module.missing"');
   });
 
   it('keeps object replacement as a fallback for template scope', () => {
@@ -127,6 +167,7 @@ describe('virtual module generation', () => {
 
     const replaced = internals.replaceInlineLocaleMemberAccess(
       code,
+      'ja-JP',
       'ja-JP',
       {
         '/src/App.vue': {

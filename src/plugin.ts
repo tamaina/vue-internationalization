@@ -8,6 +8,8 @@ import {
   inlineLocaleHtml,
   replaceInlineLocaleMemberAccess,
   replaceInlineLocaleHtml,
+  replaceInlineLocaleTextAccess,
+  rewriteInlineLocaleTemplateAccess,
   type InlineChunkManifest
 } from './inline.js';
 import {
@@ -203,6 +205,8 @@ export const internals = {
   inlineLocaleHtml,
   replaceInlineLocaleMemberAccess,
   replaceInlineLocaleHtml,
+  replaceInlineLocaleTextAccess,
+  rewriteInlineLocaleTemplateAccess,
   stripLocaleBlocks
 };
 
@@ -311,7 +315,8 @@ function transformVueSfcInline(code: string, filename: string, root: string): st
     return undefined;
   }
 
-  return injectInlineLocaleBinding(stripLocaleBlocks(code, filename), toRuntimeModuleId(filename, root));
+  const moduleId = toRuntimeModuleId(filename, root);
+  return injectInlineLocaleBinding(rewriteInlineLocaleTemplateAccess(stripLocaleBlocks(code, filename), moduleId), moduleId);
 }
 
 function rewriteWrittenHtml(outDir: string, manifest: InlineChunkManifest): void {
