@@ -6,6 +6,7 @@ export type LocaleMessageValue = string | number | bigint | boolean | null | und
 export type LocaleMessageNamedValues = Record<string, LocaleMessageValue>;
 export type LocaleMessageListValues = LocaleMessageValue[];
 export type LocaleMessageValues = LocaleMessageNamedValues | LocaleMessageListValues;
+export type LocaleMessageSyntax = 'vue' | 'icu';
 
 export type LocaleMessageToken =
 	| { type: 'text'; value: string }
@@ -20,6 +21,7 @@ export type LocaleMessageAst = {
 
 export type LocaleMessageContext = {
 	locale?: string;
+	syntax?: LocaleMessageSyntax;
 	values?: LocaleMessageValues;
 	plural?: number;
 	resolveLinked?: (key: string) => string;
@@ -59,7 +61,7 @@ export function compileLocaleMessage(message: string): LocaleMessageAst {
 }
 
 export function formatLocaleMessage(message: string, context: LocaleMessageContext = {}): string {
-	if (isIcuLocaleMessage(message)) {
+	if (context.syntax === 'icu') {
 		const formatter = getIcuMessageFormatter(message, context.locale);
 		const values = context.values && !Array.isArray(context.values) ? context.values : undefined;
 		const formatted = formatter.format(values);
@@ -72,8 +74,8 @@ export function formatLocaleMessage(message: string, context: LocaleMessageConte
 	return tokens.map((token) => formatToken(token, context)).join('');
 }
 
-export function getLocaleMessageNamedKeys(message: string): string[] {
-	if (isIcuLocaleMessage(message)) {
+export function getLocaleMessageNamedKeys(message: string, syntax: LocaleMessageSyntax = 'vue'): string[] {
+	if (syntax === 'icu') {
 		return getIcuLocaleMessageArgumentKeys(message);
 	}
 
@@ -104,8 +106,8 @@ export function getLocaleMessageListIndexes(message: string): number[] {
 	return indexes.sort((left, right) => left - right);
 }
 
-export function hasLocaleMessagePlural(message: string): boolean {
-	if (isIcuLocaleMessage(message)) {
+export function hasLocaleMessagePlural(message: string, syntax: LocaleMessageSyntax = 'vue'): boolean {
+	if (syntax === 'icu') {
 		return true;
 	}
 

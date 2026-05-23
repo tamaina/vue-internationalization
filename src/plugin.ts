@@ -25,6 +25,7 @@ import {
 } from './parse.js';
 import { readTextFile, scanVueFiles, type ScanVueFilesOptions } from './files.js';
 import { loadLocaleEnvDictionary, type LocaleEnvSource, type LocaleEnvSources } from './localeEnv.js';
+import type { LocaleMessageSyntax } from './message.js';
 import type { Plugin } from 'vite';
 import type { LocaleDictionary } from './types.js';
 
@@ -38,6 +39,7 @@ export type VueInternationalizationOptions = {
 	global?: LocaleEnvSources;
 	buildStrategy?: 'virtual' | 'inline-chunks';
 	scan?: ScanVueFilesOptions;
+	messageSyntax?: LocaleMessageSyntax;
 };
 type ResolvedVueInternationalizationOptions = VueInternationalizationOptions;
 type TsconfigVueCompilerPlugin = {
@@ -46,6 +48,7 @@ type TsconfigVueCompilerPlugin = {
 	global?: unknown;
 	buildStrategy?: unknown;
 	scan?: unknown;
+	messageSyntax?: unknown;
 };
 
 type ModuleMessages = Partial<Record<string, LocaleMessages>>;
@@ -154,10 +157,10 @@ export function vueInternationalization(options?: Partial<VueInternationalizatio
 
 			if (id === RESOLVED_VIRTUAL_ID) {
 				if (command === 'build' && currentOptions.buildStrategy === 'inline-chunks') {
-					return generateInlineRuntimeModule(currentOptions.primaryLocale, getLocales(modules, globalMessages));
+					return generateInlineRuntimeModule(currentOptions.primaryLocale, getLocales(modules, globalMessages), currentOptions.messageSyntax);
 				}
 
-				return generateRuntimeModule(currentOptions.primaryLocale, getLocales(modules, globalMessages));
+				return generateRuntimeModule(currentOptions.primaryLocale, getLocales(modules, globalMessages), currentOptions.messageSyntax);
 			}
 
 			if (id.startsWith(RESOLVED_LOCALE_PREFIX)) {
@@ -180,6 +183,7 @@ export function vueInternationalization(options?: Partial<VueInternationalizatio
 					: transformVueSfc(code, id, {
 						primaryLocale: currentOptions.primaryLocale,
 						global: globalMessages[currentOptions.primaryLocale],
+						messageSyntax: currentOptions.messageSyntax,
 					});
 
 			if (!transformed) {
@@ -207,6 +211,7 @@ export function vueInternationalization(options?: Partial<VueInternationalizatio
 					currentOptions.primaryLocale,
 					modules,
 					globalMessages,
+					currentOptions.messageSyntax,
 				);
 				inlineLocaleHtml(bundle as Record<string, unknown>, inlineManifest);
 			}
@@ -262,6 +267,7 @@ function resolveOptions(root: string, options: Partial<VueInternationalizationOp
 		global: merged.global,
 		buildStrategy: merged.buildStrategy,
 		scan: merged.scan,
+		messageSyntax: merged.messageSyntax ?? 'vue',
 	};
 }
 
@@ -311,6 +317,10 @@ function normalizeTsconfigPluginOptions(
 
 	if (plugin.scan !== undefined) {
 		result.scan = normalizeScanOption(plugin.scan, sourceFile);
+	}
+
+	if (plugin.messageSyntax === 'vue' || plugin.messageSyntax === 'icu') {
+		result.messageSyntax = plugin.messageSyntax;
 	}
 
 	return result;
@@ -416,7 +426,7 @@ function getLocales(modules: ModuleMessages, global: LocaleMessages): string[] {
 	return [...locales].sort();
 }
 
-function generateRuntimeModule(primaryLocale: string, locales: string[]): string {
+function generateRuntimeModule(primaryLocale: string, locales: string[], messageSyntax: LocaleMessageSyntax = 'vue'): string {
 	const loaders = Object.fromEntries(
 		locales.map((locale) => [
 			locale,
@@ -448,6 +458,7 @@ function generateRuntimeModule(primaryLocale: string, locales: string[]): string
 		'    initialLocale: options.initialLocale ?? currentLocale,',
 		'    loaders: localeLoaders,',
 		'    fallbackLocale: options.fallbackLocale ?? primaryLocale,',
+		`    messageSyntax: options.messageSyntax ?? ${JSON.stringify(messageSyntax)},`,
 		'    dateTimeFormats: options.dateTimeFormats,',
 		'    numberFormats: options.numberFormats',
 		'  });',
@@ -455,7 +466,7 @@ function generateRuntimeModule(primaryLocale: string, locales: string[]): string
 	].join('\n');
 }
 
-function generateInlineRuntimeModule(primaryLocale: string, locales: string[]): string {
+function generateInlineRuntimeModule(primaryLocale: string, locales: string[], messageSyntax: LocaleMessageSyntax = 'vue'): string {
 	const loaderEntries = locales
 		.map((locale) => `${JSON.stringify(locale)}: () => Promise.resolve({ global: {}, modules: {} })`)
 		.join(',\n  ');
@@ -478,6 +489,7 @@ function generateInlineRuntimeModule(primaryLocale: string, locales: string[]): 
 		'    initialLocale: options.initialLocale ?? currentLocale,',
 		'    loaders: localeLoaders,',
 		'    fallbackLocale: options.fallbackLocale ?? primaryLocale,',
+		`    messageSyntax: options.messageSyntax ?? ${JSON.stringify(messageSyntax)},`,
 		'    dateTimeFormats: options.dateTimeFormats,',
 		'    numberFormats: options.numberFormats',
 		'  });',

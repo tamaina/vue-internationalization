@@ -16,6 +16,7 @@ describe('virtual module generation', () => {
 						name: 'vue-internationalization/volar',
 						primaryLocale: 'ja-JP',
 						buildStrategy: 'inline-chunks',
+						messageSyntax: 'icu',
 						scan: {
 							include: 'src/**/*.vue',
 							exclude: ['src/legacy/**'],
@@ -31,6 +32,7 @@ describe('virtual module generation', () => {
 		expect(internals.resolveOptions(root, {})).toEqual({
 			primaryLocale: 'ja-JP',
 			buildStrategy: 'inline-chunks',
+			messageSyntax: 'icu',
 			scan: {
 				include: 'src/**/*.vue',
 				exclude: ['src/legacy/**'],
@@ -59,6 +61,7 @@ describe('virtual module generation', () => {
 			primaryLocale: 'ja-JP',
 			buildStrategy: undefined,
 			global: undefined,
+			messageSyntax: 'vue',
 		});
 	});
 
@@ -81,6 +84,7 @@ describe('virtual module generation', () => {
 			primaryLocale: 'en-US',
 			buildStrategy: undefined,
 			global: undefined,
+			messageSyntax: 'vue',
 		});
 	});
 
@@ -440,6 +444,7 @@ describe('virtual module generation', () => {
 				},
 			},
 			{},
+			'icu',
 		);
 
 		expect(replaced).toContain('new Intl.PluralRules("en-US"');

@@ -1,7 +1,7 @@
 import { Fragment, computed, defineComponent, hasInjectionContext, h, inject, reactive } from 'vue';
 import { compileLocaleMessage, formatLocaleMessage } from './message.js';
 import type { App, ComputedRef, InjectionKey, PropType, VNodeChild } from 'vue';
-import type { LocaleMessageToken, LocaleMessageValues } from './message.js';
+import type { LocaleMessageSyntax, LocaleMessageToken, LocaleMessageValues } from './message.js';
 import type { LocaleDictionary } from './types.js';
 
 export type RuntimeLocaleDictionary = LocaleDictionary;
@@ -56,6 +56,7 @@ export type InternationalizationRuntimeOptions = {
 	primaryLocale: string;
 	initialLocale?: string;
 	fallbackLocale?: string;
+	messageSyntax?: LocaleMessageSyntax;
 	loaders: Partial<Record<string, LocaleLoader>>;
 	dateTimeFormats?: LocaleDateTimeFormatSource;
 	numberFormats?: LocaleNumberFormatSource;
@@ -73,6 +74,7 @@ type InternationalizationState = {
 	locale: string;
 	primaryLocale: string;
 	fallbackLocale: string;
+	messageSyntax: LocaleMessageSyntax;
 	bundles: Partial<Record<string, LocaleBundle>>;
 	dateTimeFormats: LocaleDateTimeFormatSource;
 	numberFormats: LocaleNumberFormatSource;
@@ -131,6 +133,7 @@ export function createInternationalization(options: InternationalizationRuntimeO
 		locale: options.initialLocale ?? options.primaryLocale,
 		primaryLocale: options.primaryLocale,
 		fallbackLocale: options.fallbackLocale ?? options.primaryLocale,
+		messageSyntax: options.messageSyntax ?? 'vue',
 		bundles: {},
 		dateTimeFormats: options.dateTimeFormats ?? {},
 		numberFormats: options.numberFormats ?? {},
@@ -216,8 +219,8 @@ export function useLocalizer(moduleUrl: string): Readonly<ComputedRef<LocaleLoca
 		const state = getState(internationalization);
 
 		return {
-			env: createLocalizerDictionary(locale.value.env, ['env'], rootDictionary, state.locale),
-			sfc: createLocalizerDictionary(locale.value.sfc, ['sfc'], rootDictionary, state.locale),
+			env: createLocalizerDictionary(locale.value.env, ['env'], rootDictionary, state.locale, state.messageSyntax),
+			sfc: createLocalizerDictionary(locale.value.sfc, ['sfc'], rootDictionary, state.locale, state.messageSyntax),
 		};
 	});
 }
@@ -515,6 +518,7 @@ function createLocalizerDictionary(
 	path: string[],
 	rootDictionary: RuntimeLocaleDictionary = dictionary,
 	locale?: string,
+	messageSyntax: LocaleMessageSyntax = 'vue',
 ): LocaleLocalizerDictionary {
 	const pathKey = path.join('.');
 	const dictionaryCache = getOrCreateLocalizerCache(dictionary, rootDictionary);
@@ -534,7 +538,7 @@ function createLocalizerDictionary(
 			const nextPath = [...path, property];
 
 			if (isDictionary(value)) {
-				return createLocalizerDictionary(value, nextPath, rootDictionary, locale);
+				return createLocalizerDictionary(value, nextPath, rootDictionary, locale, messageSyntax);
 			}
 
 			return (values?: LocaleTemplateValues | LocaleTemplateValue[] | number, plural?: number) => {
@@ -549,9 +553,10 @@ function createLocalizerDictionary(
 
 				return formatLocaleMessage(message, {
 					locale,
+					syntax: messageSyntax,
 					values: normalizedValues,
 					plural: normalizedPlural,
-					resolveLinked: (key) => resolveLinkedMessage(rootDictionary, key, normalizedValues, normalizedPlural, undefined, path[0]),
+					resolveLinked: (key) => resolveLinkedMessage(rootDictionary, key, normalizedValues, normalizedPlural, messageSyntax, undefined, path[0]),
 				});
 			};
 		},
@@ -622,6 +627,7 @@ function resolveLinkedMessage(
 	key: string,
 	values: LocaleMessageValues | undefined,
 	plural: number | undefined,
+	messageSyntax: LocaleMessageSyntax,
 	seen: Set<string> = new Set(),
 	scope: string | undefined = undefined,
 ): string {
@@ -639,9 +645,10 @@ function resolveLinkedMessage(
 
 	seen.add(resolvedKey);
 	return formatLocaleMessage(value, {
+		syntax: messageSyntax,
 		values,
 		plural,
-		resolveLinked: (linkedKey) => resolveLinkedMessage(dictionary, linkedKey, values, plural, seen, path[0]),
+		resolveLinked: (linkedKey) => resolveLinkedMessage(dictionary, linkedKey, values, plural, messageSyntax, seen, path[0]),
 	});
 }
 

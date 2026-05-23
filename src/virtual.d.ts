@@ -1,5 +1,6 @@
 declare module 'virtual:vue-internationalization' {
 	import type { InternationalizationInstance, LocaleDateTimeFormatSource, LocaleDateTimeFormatter, LocaleLocalizerScope, LocaleNumberFormatSource, LocaleNumberFormatter, LocaleScope, RuntimeLocaleDictionary } from 'vue-internationalization/runtime';
+	import type { LocaleMessageSyntax } from 'vue-internationalization';
 	import type { ComputedRef } from 'vue';
 
 	export const primaryLocale: string;
@@ -11,6 +12,7 @@ declare module 'virtual:vue-internationalization' {
 	export function createInternationalization(options?: {
 		initialLocale?: string;
 		fallbackLocale?: string;
+		messageSyntax?: LocaleMessageSyntax;
 		dateTimeFormats?: LocaleDateTimeFormatSource;
 		numberFormats?: LocaleNumberFormatSource;
 	}): InternationalizationInstance;

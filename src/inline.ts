@@ -2,15 +2,16 @@ import { parse } from 'acorn';
 import { parse as parseIcuMessage, TYPE } from '@formatjs/icu-messageformat-parser';
 import { walk } from 'estree-walker';
 import MagicString from 'magic-string';
-import { compileLocaleMessage, isIcuLocaleMessage } from './message.js';
+import { compileLocaleMessage } from './message.js';
 import { injectScriptSetup } from './scriptSetup.js';
 import type { Node as EstreeNode } from 'estree-walker';
 import type { MessageFormatElement } from '@formatjs/icu-messageformat-parser';
-import type { LocaleMessageToken } from './message.js';
+import type { LocaleMessageSyntax, LocaleMessageToken } from './message.js';
 import type { LocaleDictionary } from './types.js';
 
 export type InlineLocalePayload = {
 	locale: string;
+	messageSyntax: LocaleMessageSyntax;
 	global: LocaleDictionary;
 	module: LocaleDictionary;
 };
@@ -214,6 +215,7 @@ export function inlineLocaleChunks(
 	primaryLocale: string,
 	modules: ModuleMessages,
 	globalMessages: LocaleMessages,
+	messageSyntax: LocaleMessageSyntax = 'vue',
 ): InlineChunkManifest {
 	const manifest: InlineChunkManifest = {
 		primaryLocale,
@@ -249,7 +251,7 @@ export function inlineLocaleChunks(
 				addLocaleToImportedFileName(localizableFiles, fileName, locale),
 			);
 			localizedChunk.code = replaceChunkFileReferences(
-				replaceInlineLocaleMarkers(originalCode, locale, primaryLocale, modules, globalMessages, parsed),
+				replaceInlineLocaleMarkers(originalCode, locale, primaryLocale, messageSyntax, modules, globalMessages, parsed),
 				getLocalizableChunkReferences(originalImports, originalDynamicImports, localizableFiles),
 				locale,
 			);
@@ -273,11 +275,12 @@ export function replaceInlineLocaleMarkers(
 	code: string,
 	locale: string,
 	primaryLocale: string,
+	messageSyntax: LocaleMessageSyntax,
 	modules: ModuleMessages,
 	globalMessages: LocaleMessages,
 	parsed?: ParsedInlineJavaScript,
 ): string {
-	const resolvePayload = createInlinePayloadResolver(locale, primaryLocale, modules, globalMessages);
+	const resolvePayload = createInlinePayloadResolver(locale, primaryLocale, messageSyntax, modules, globalMessages);
 
 	return replaceInlineLocaleAccessAst(code, resolvePayload, {
 		localeMembers: true,
@@ -293,10 +296,11 @@ export function replaceInlineLocalizerAccess(
 	primaryLocale: string,
 	modules: ModuleMessages,
 	globalMessages: LocaleMessages,
+	messageSyntax: LocaleMessageSyntax = 'vue',
 ): string {
 	return replaceInlineLocalizerAccessWithResolver(
 		code,
-		createInlinePayloadResolver(locale, primaryLocale, modules, globalMessages),
+		createInlinePayloadResolver(locale, primaryLocale, messageSyntax, modules, globalMessages),
 	);
 }
 
@@ -313,10 +317,11 @@ export function replaceInlineLocaleTextAccess(
 	primaryLocale: string,
 	modules: ModuleMessages,
 	globalMessages: LocaleMessages,
+	messageSyntax: LocaleMessageSyntax = 'vue',
 ): string {
 	return replaceInlineLocaleTextAccessWithResolver(
 		code,
-		createInlinePayloadResolver(locale, primaryLocale, modules, globalMessages),
+		createInlinePayloadResolver(locale, primaryLocale, messageSyntax, modules, globalMessages),
 	);
 }
 
@@ -333,10 +338,11 @@ export function replaceInlineLocaleMemberAccess(
 	primaryLocale: string,
 	modules: ModuleMessages,
 	globalMessages: LocaleMessages,
+	messageSyntax: LocaleMessageSyntax = 'vue',
 ): string {
 	return replaceInlineLocaleMemberAccessWithResolver(
 		code,
-		createInlinePayloadResolver(locale, primaryLocale, modules, globalMessages),
+		createInlinePayloadResolver(locale, primaryLocale, messageSyntax, modules, globalMessages),
 	);
 }
 
@@ -453,6 +459,7 @@ function replaceChunkFileReferences(code: string, localizableFiles: Set<string>,
 function createInlinePayloadResolver(
 	locale: string,
 	primaryLocale: string,
+	messageSyntax: LocaleMessageSyntax,
 	modules: ModuleMessages,
 	globalMessages: LocaleMessages,
 ): InlinePayloadResolver {
@@ -469,6 +476,7 @@ function createInlinePayloadResolver(
 
 		return {
 			locale,
+			messageSyntax,
 			global,
 			module,
 		};
@@ -913,8 +921,8 @@ function createInlineTemplateExpression(
 	scope?: PublicLocaleScope,
 	seen: Set<string> = new Set(),
 ): string {
-	if (isIcuLocaleMessage(template)) {
-		return createInlineIcuMessageExpression(template, valuesExpression, payload?.locale);
+	if (payload?.messageSyntax === 'icu') {
+		return createInlineIcuMessageExpression(template, valuesExpression, payload.locale);
 	}
 
 	const cases = compileLocaleMessage(template).cases;

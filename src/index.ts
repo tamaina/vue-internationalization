@@ -17,6 +17,7 @@ export type {
 	LocaleMessageContext,
 	LocaleMessageListValues,
 	LocaleMessageNamedValues,
+	LocaleMessageSyntax,
 	LocaleMessageToken,
 	LocaleMessageValue,
 	LocaleMessageValues,

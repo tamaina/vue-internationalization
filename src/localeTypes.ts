@@ -1,10 +1,12 @@
-import { getLocaleMessageListIndexes, getLocaleMessageNamedKeys, hasLocaleMessagePlural, isIcuLocaleMessage } from './message.js';
+import { getLocaleMessageListIndexes, getLocaleMessageNamedKeys, hasLocaleMessagePlural } from './message.js';
+import type { LocaleMessageSyntax } from './message.js';
 import type { LocaleDictionary, LocaleValue } from './types.js';
 
 export type LocaleBindingTypes = {
 	primaryLocale?: string;
 	global?: LocaleDictionary;
 	module?: LocaleDictionary;
+	messageSyntax?: LocaleMessageSyntax;
 };
 
 export function createUseLocaleTypeParameters(types: LocaleBindingTypes): string {
@@ -32,7 +34,7 @@ export function createLocaleConstRefType(types: LocaleBindingTypes): string {
 }
 
 export function createLocalizerScopeType(types: LocaleBindingTypes): string {
-	return `{ env: ${toLocalizerTypeLiteral(types.global ?? {})}; sfc: ${toLocalizerTypeLiteral(types.module ?? {})}; }`;
+	return `{ env: ${toLocalizerTypeLiteral(types.global ?? {}, types.messageSyntax ?? 'vue')}; sfc: ${toLocalizerTypeLiteral(types.module ?? {}, types.messageSyntax ?? 'vue')}; }`;
 }
 
 export function createLocalizerRefType(types: LocaleBindingTypes): string {
@@ -40,7 +42,7 @@ export function createLocalizerRefType(types: LocaleBindingTypes): string {
 }
 
 export function createLocalizerDocumentationScopeType(types: LocaleBindingTypes): string {
-	return `{ env: ${toLocalizerDocumentationTypeLiteral(types.global ?? {}, ['env'])}; sfc: ${toLocalizerDocumentationTypeLiteral(types.module ?? {}, ['sfc'])}; }`;
+	return `{ env: ${toLocalizerDocumentationTypeLiteral(types.global ?? {}, ['env'], types.messageSyntax ?? 'vue')}; sfc: ${toLocalizerDocumentationTypeLiteral(types.module ?? {}, ['sfc'], types.messageSyntax ?? 'vue')}; }`;
 }
 
 export function createLocalizerDocumentationRefType(types: LocaleBindingTypes): string {
@@ -107,43 +109,43 @@ function toConstType(value: LocaleValue): string {
 	return toConstTypeLiteral(value);
 }
 
-function toLocalizerTypeLiteral(dictionary: LocaleDictionary): string {
-	const entries = Object.entries(dictionary).map(([key, value]) => `${toPropertyName(key)}: ${toLocalizerType(value)};`);
+function toLocalizerTypeLiteral(dictionary: LocaleDictionary, messageSyntax: LocaleMessageSyntax): string {
+	const entries = Object.entries(dictionary).map(([key, value]) => `${toPropertyName(key)}: ${toLocalizerType(value, messageSyntax)};`);
 	return entries.length === 0 ? 'import("vue-internationalization/runtime").LocaleLocalizerDictionary' : `{ ${entries.join(' ')} }`;
 }
 
-function toLocalizerType(value: LocaleValue): string {
+function toLocalizerType(value: LocaleValue, messageSyntax: LocaleMessageSyntax): string {
 	if (value != null && typeof value === 'object' && !Array.isArray(value)) {
-		return toLocalizerTypeLiteral(value);
+		return toLocalizerTypeLiteral(value, messageSyntax);
 	}
 
 	if (typeof value === 'function') {
 		return 'import("vue-internationalization/runtime").LocaleMessageFunction';
 	}
 
-	return toLocaleTemplateFunctionType(value);
+	return toLocaleTemplateFunctionType(value, messageSyntax);
 }
 
-function toLocalizerDocumentationTypeLiteral(dictionary: LocaleDictionary, path: string[]): string {
+function toLocalizerDocumentationTypeLiteral(dictionary: LocaleDictionary, path: string[], messageSyntax: LocaleMessageSyntax): string {
 	const entries = Object.entries(dictionary).map(([key, value]) => {
 		const currentPath = [...path, key];
 		const documentation = typeof value === 'string' ? toDocumentation(value, currentPath) : '';
-		return `${documentation}${toPropertyName(key)}: ${toLocalizerDocumentationType(value, currentPath)};`;
+		return `${documentation}${toPropertyName(key)}: ${toLocalizerDocumentationType(value, currentPath, messageSyntax)};`;
 	});
 
 	return entries.length === 0 ? 'import("vue-internationalization/runtime").LocaleLocalizerDictionary' : `{\n${entries.join('\n')}\n}`;
 }
 
-function toLocalizerDocumentationType(value: LocaleValue, path: string[]): string {
+function toLocalizerDocumentationType(value: LocaleValue, path: string[], messageSyntax: LocaleMessageSyntax): string {
 	if (value != null && typeof value === 'object' && !Array.isArray(value)) {
-		return toLocalizerDocumentationTypeLiteral(value, path);
+		return toLocalizerDocumentationTypeLiteral(value, path, messageSyntax);
 	}
 
 	if (typeof value === 'function') {
 		return 'import("vue-internationalization/runtime").LocaleMessageFunction';
 	}
 
-	return toLocaleTemplateFunctionType(value);
+	return toLocaleTemplateFunctionType(value, messageSyntax);
 }
 
 function toDocumentation(value: string, path: string[]): string {
@@ -164,19 +166,23 @@ function toLocalizerExampleArguments(value: string): string {
 	return keys.length === 0 ? '' : `{ ${keys.join(', ')} }`;
 }
 
-function toLocaleTemplateFunctionType(value: LocaleValue): string {
+function toLocaleTemplateFunctionType(value: LocaleValue, messageSyntax: LocaleMessageSyntax): string {
 	if (typeof value === 'function') {
 		return 'import("vue-internationalization/runtime").LocaleMessageFunction';
 	}
 
-	const keys = typeof value === 'string' ? getLocaleMessageNamedKeys(value) : [];
+	const keys = typeof value === 'string' ? getLocaleMessageNamedKeys(value, messageSyntax) : [];
 	const indexes = typeof value === 'string' ? getLocaleMessageListIndexes(value) : [];
-	const hasPlural = typeof value === 'string' && hasLocaleMessagePlural(value);
-	const usesIcu = typeof value === 'string' && isIcuLocaleMessage(value);
+	const hasPlural = typeof value === 'string' && hasLocaleMessagePlural(value, messageSyntax);
+	const usesIcu = messageSyntax === 'icu';
 
 	if (keys.length === 0) {
 		if (indexes.length > 0) {
 			return `(values: import("vue-internationalization/runtime").LocaleTemplateValue[]${hasPlural ? ', plural?: number' : ''}) => string`;
+		}
+
+		if (usesIcu) {
+			return '() => string';
 		}
 
 		return hasPlural ? '(plural: number) => string' : '() => string';

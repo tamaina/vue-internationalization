@@ -5,7 +5,7 @@
         "name": "vue-internationalization/volar",
         "primaryLocale": "ja-JP",
         "buildStrategy": "inline-chunks",
-        "messageSyntax": "vue",
+        "messageSyntax": "icu",
         "global": {
           "ja-JP": "./src/locales/ja-JP.yaml",
           "en-US": "./src/locales/en-US.yaml"

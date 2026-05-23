@@ -23,12 +23,14 @@ import {
 } from './parse.js';
 import type { VueLanguagePlugin } from '@vue/language-core';
 import type { Code } from '@vue/language-core';
+import type { LocaleMessageSyntax } from './message.js';
 import type { LocaleDictionary } from './types.js';
 
 export type VueInternationalizationVolarPluginConfig = {
 	primaryLocale?: string;
 	global?: LocaleEnvSources;
 	localizerDocumentation?: boolean;
+	messageSyntax?: LocaleMessageSyntax;
 };
 
 const plugin: VueLanguagePlugin<VueInternationalizationVolarPluginConfig> = ({ config }) => {
@@ -339,6 +341,7 @@ function getGeneratedTypes(
 ): GeneratedTypes {
 	const key = [
 		config.localizerDocumentation === false ? 'compact' : 'documented',
+		config.messageSyntax ?? 'vue',
 		stableStringify(globalDictionary ?? {}),
 		stableStringify(moduleDictionary),
 	].join('\n');
@@ -352,19 +355,23 @@ function getGeneratedTypes(
 		localeRefType: createLocaleConstRefType({
 			global: globalDictionary,
 			module: moduleDictionary,
+			messageSyntax: config.messageSyntax ?? 'vue',
 		}),
 		localeScopeType: createLocaleConstScopeType({
 			global: globalDictionary,
 			module: moduleDictionary,
+			messageSyntax: config.messageSyntax ?? 'vue',
 		}),
 		localizerRefType: config.localizerDocumentation === false
 			? createLocalizerRefType({
 				global: globalDictionary,
 				module: moduleDictionary,
+				messageSyntax: config.messageSyntax ?? 'vue',
 			})
 			: createLocalizerDocumentationRefType({
 				global: globalDictionary,
 				module: moduleDictionary,
+				messageSyntax: config.messageSyntax ?? 'vue',
 			}),
 		localizerScopeType: config.localizerDocumentation === false
 			? createLocalizerScopeType({

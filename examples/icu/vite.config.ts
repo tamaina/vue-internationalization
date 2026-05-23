@@ -8,7 +8,7 @@ export default defineConfig({
 	},
 	plugins: [
 		vueInternationalization({
-			messageSyntax: 'vue',
+			messageSyntax: 'icu',
 		}),
 		vue(),
 	],
