@@ -36,7 +36,7 @@ const INLINE_BINDING_RE =
 	/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*__VUE_INTERNATIONALIZATION_INLINE_LOCALE__\("(__VUE_INTERNATIONALIZATION_INLINE__:[A-Za-z0-9+/=]+)"\)/g;
 const INLINE_TEXT_RE =
 	/(?:\b[A-Za-z_$][\w$]*\.)?__VUE_INTERNATIONALIZATION_INLINE_TEXT__\("(__VUE_INTERNATIONALIZATION_INLINE__:[A-Za-z0-9+/=]+)","((?:global|module)(?:\.[A-Za-z_$][\w$]*)+)"\)/g;
-const LOCALE_ACCESS_RE = /\$locale\.(global|module)((?:\.[A-Za-z_$][\w$]*)+)/g;
+const LOCALE_ACCESS_RE = /\$locale(?:\.value)?\.(global|module)((?:\.[A-Za-z_$][\w$]*)+)/g;
 
 export function createInlineLocaleMarker(moduleId: string): string {
 	return `${INLINE_MARKER_PREFIX}${Buffer.from(moduleId, 'utf8').toString('base64')}`;
@@ -284,7 +284,7 @@ function replaceChunkFileReferences(code: string, localizableFiles: Set<string>,
 }
 
 function replacePayloadMemberAccess(code: string, variableName: string, payload: InlineLocalePayload): string {
-	const memberRe = new RegExp(`\\b${escapeRegExp(variableName)}\\.(global|module)((?:\\.[A-Za-z_$][\\w$]*)+)`, 'gu');
+	const memberRe = new RegExp(`\\b${escapeRegExp(variableName)}(?:\\.value)?\\.(global|module)((?:\\.[A-Za-z_$][\\w$]*)+)`, 'gu');
 
 	return code.replace(memberRe, (match, scope: 'global' | 'module', pathExpression: string) => {
 		const path = pathExpression.slice(1).split('.');

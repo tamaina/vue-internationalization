@@ -31,6 +31,27 @@ describe('virtual module generation', () => {
 		});
 	});
 
+	it('resolves plugin options from jsonc tsconfig', () => {
+		const root = mkdtempSync(join(tmpdir(), 'vue-internationalization-'));
+		writeFileSync(join(root, 'tsconfig.json'), `{
+			// Vue Language Tools reads this block.
+			"vueCompilerOptions": {
+				"plugins": [
+					{
+						"name": "vue-internationalization/volar",
+						"primaryLocale": "ja-JP",
+					},
+				],
+			},
+		}`);
+
+		expect(internals.resolveOptions(root, {})).toEqual({
+			primaryLocale: 'ja-JP',
+			buildStrategy: undefined,
+			global: undefined,
+		});
+	});
+
 	it('prefers explicit Vite plugin options over tsconfig values', () => {
 		const root = mkdtempSync(join(tmpdir(), 'vue-internationalization-'));
 		writeFileSync(join(root, 'tsconfig.json'), JSON.stringify({
@@ -145,7 +166,9 @@ describe('virtual module generation', () => {
 		const code = [
 			`const l = ${binding};`,
 			'const title = l.module.title;',
+			'const refTitle = l.value.module.title;',
 			'const globalMessage = l.global.fuga;',
+			'const refGlobalMessage = l.value.global.fuga;',
 			'const primaryFallback = l.module.missingPrimary;',
 			'const missing = l.module.missing;',
 		].join('');
@@ -172,7 +195,9 @@ describe('virtual module generation', () => {
 		);
 
 		expect(replaced).toContain('const title = "foo";');
+		expect(replaced).toContain('const refTitle = "foo";');
 		expect(replaced).toContain('const globalMessage = "bar";');
+		expect(replaced).toContain('const refGlobalMessage = "bar";');
 		expect(replaced).toContain('const primaryFallback = "primary";');
 		expect(replaced).toContain('const missing = "$locale.module.missing";');
 	});

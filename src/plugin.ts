@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import ts from 'typescript';
 import {
 	augmentViteManifestJson,
 	injectInlineLocaleBinding,
@@ -330,12 +331,14 @@ function normalizeLocaleDictionary(value: unknown, sourceLabel: string): LocaleD
 }
 
 function parseJsonFile(file: string): unknown {
-	try {
-		return JSON.parse(readFileSync(file, 'utf8'));
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
+	const parsed = ts.parseConfigFileTextToJson(file, readFileSync(file, 'utf8'));
+
+	if (parsed.error) {
+		const message = ts.flattenDiagnosticMessageText(parsed.error.messageText, '\n');
 		throw new Error(`Failed to parse ${file}: ${message}`);
 	}
+
+	return parsed.config;
 }
 
 function getObject(value: unknown): Record<string, unknown> | undefined {
