@@ -55,7 +55,7 @@ type InternationalizationState = {
 const INTERNATIONALIZATION_KEY: InjectionKey<InternationalizationInstance> = Symbol('vue-internationalization');
 const EMPTY_DICTIONARY: RuntimeLocaleDictionary = {};
 const DICTIONARY_PROXY_CACHE = new WeakMap<RuntimeLocaleDictionary, WeakMap<RuntimeLocaleDictionary, Map<string, RuntimeLocaleDictionary>>>();
-const LOCALIZER_PROXY_CACHE = new WeakMap<RuntimeLocaleDictionary, Map<string, LocaleLocalizerDictionary>>();
+const LOCALIZER_PROXY_CACHE = new WeakMap<RuntimeLocaleDictionary, WeakMap<RuntimeLocaleDictionary, Map<string, LocaleLocalizerDictionary>>>();
 const STATES = new WeakMap<InternationalizationInstance, InternationalizationState>();
 let activeInternationalization: InternationalizationInstance | undefined;
 
@@ -135,10 +135,14 @@ export function useLocale<
 export function useLocalizer(moduleUrl: string): Readonly<ComputedRef<LocaleLocalizerScope>> {
 	const locale = useLocale(moduleUrl);
 
-	return computed(() => ({
-		env: createLocalizerDictionary(locale.value.env, ['env']),
-		sfc: createLocalizerDictionary(locale.value.sfc, ['sfc']),
-	}));
+	return computed(() => {
+		const rootDictionary = locale.value as RuntimeLocaleDictionary;
+
+		return {
+			env: createLocalizerDictionary(locale.value.env, ['env'], rootDictionary),
+			sfc: createLocalizerDictionary(locale.value.sfc, ['sfc'], rootDictionary),
+		};
+	});
 }
 
 export function formatLocaleTemplate(template: string, values: LocaleTemplateValues = {}): string {
@@ -204,7 +208,7 @@ function createLocalizerDictionary(
 	rootDictionary: RuntimeLocaleDictionary = dictionary,
 ): LocaleLocalizerDictionary {
 	const pathKey = path.join('.');
-	const dictionaryCache = getOrCreateLocalizerCache(dictionary);
+	const dictionaryCache = getOrCreateLocalizerCache(dictionary, rootDictionary);
 	const cached = dictionaryCache.get(pathKey);
 
 	if (cached) {
@@ -232,7 +236,7 @@ function createLocalizerDictionary(
 				return formatLocaleMessage(message, {
 					values: normalizedValues,
 					plural: normalizedPlural,
-					resolveLinked: (key) => resolveLinkedMessage(rootDictionary, key, normalizedValues, normalizedPlural),
+					resolveLinked: (key) => resolveLinkedMessage(rootDictionary, key, normalizedValues, normalizedPlural, undefined, path[0]),
 				});
 			};
 		},
@@ -273,12 +277,22 @@ function setDictionaryProxy(
 	pathCache.set(path.join('.'), proxy);
 }
 
-function getOrCreateLocalizerCache(dictionary: RuntimeLocaleDictionary): Map<string, LocaleLocalizerDictionary> {
-	let cache = LOCALIZER_PROXY_CACHE.get(dictionary);
+function getOrCreateLocalizerCache(
+	dictionary: RuntimeLocaleDictionary,
+	rootDictionary: RuntimeLocaleDictionary,
+): Map<string, LocaleLocalizerDictionary> {
+	let rootCache = LOCALIZER_PROXY_CACHE.get(dictionary);
+
+	if (!rootCache) {
+		rootCache = new WeakMap();
+		LOCALIZER_PROXY_CACHE.set(dictionary, rootCache);
+	}
+
+	let cache = rootCache.get(rootDictionary);
 
 	if (!cache) {
 		cache = new Map();
-		LOCALIZER_PROXY_CACHE.set(dictionary, cache);
+		rootCache.set(rootDictionary, cache);
 	}
 
 	return cache;
@@ -294,22 +308,36 @@ function resolveLinkedMessage(
 	values: LocaleMessageValues | undefined,
 	plural: number | undefined,
 	seen: Set<string> = new Set(),
+	scope: string | undefined = undefined,
 ): string {
-	if (seen.has(key)) {
+	const path = resolveLinkedPath(key, scope);
+	const resolvedKey = path.join('.');
+
+	if (seen.has(resolvedKey)) {
 		return `@:${key}`;
 	}
 
-	const value = getValueByPath(dictionary, key.split('.'));
+	const value = getValueByPath(dictionary, path);
 	if (typeof value !== 'string') {
 		return `@:${key}`;
 	}
 
-	seen.add(key);
+	seen.add(resolvedKey);
 	return formatLocaleMessage(value, {
 		values,
 		plural,
-		resolveLinked: (linkedKey) => resolveLinkedMessage(dictionary, linkedKey, values, plural, seen),
+		resolveLinked: (linkedKey) => resolveLinkedMessage(dictionary, linkedKey, values, plural, seen, path[0]),
 	});
+}
+
+function resolveLinkedPath(key: string, scope: string | undefined): string[] {
+	const path = key.split('.');
+
+	if (path[0] === 'env' || path[0] === 'sfc' || !scope) {
+		return path;
+	}
+
+	return [scope, ...path];
 }
 
 function getValueByPath(dictionary: RuntimeLocaleDictionary, path: string[]): unknown {

@@ -103,6 +103,12 @@ describe('runtime locale fallback', () => {
 			loaders: {
 				'en-US': () =>
 					Promise.resolve({
+						global: {
+							appName: 'Example App',
+							nested: {
+								envTarget: 'env target',
+							},
+						},
 						modules: {
 							'/src/App.vue': {
 								named: 'Hello {user-name}',
@@ -112,6 +118,9 @@ describe('runtime locale fallback', () => {
 								apple: 'no apples | one apple | {count} apples',
 								name: 'World',
 								linked: 'Hello @.lower:name',
+								linkedEnv: 'From @:env.appName',
+								linkedSfc: 'From @:sfc.name',
+								nestedEnv: '@.capitalize:env.nested.envTarget',
 								missingLinked: 'Missing @:missing.path',
 								recursive: '@:recursive',
 								nested: {
@@ -136,6 +145,9 @@ describe('runtime locale fallback', () => {
 					car: (plural: number) => string;
 					apple: (values: { count: number }, plural?: number) => string;
 					linked: () => string;
+					linkedEnv: () => string;
+					linkedSfc: () => string;
+					nestedEnv: () => string;
 					missingLinked: () => string;
 					recursive: () => string;
 					nested: {
@@ -154,6 +166,9 @@ describe('runtime locale fallback', () => {
 		expect(localizer.value.sfc.apple({ count: 1 }, 1)).toBe('one apple');
 		expect(localizer.value.sfc.apple({ count: 10 }, 10)).toBe('10 apples');
 		expect(localizer.value.sfc.linked()).toBe('Hello world');
+		expect(localizer.value.sfc.linkedEnv()).toBe('From Example App');
+		expect(localizer.value.sfc.linkedSfc()).toBe('From World');
+		expect(localizer.value.sfc.nestedEnv()).toBe('Env target');
 		expect(localizer.value.sfc.missingLinked()).toBe('Missing @:missing.path');
 		expect(localizer.value.sfc.recursive()).toBe('@:recursive');
 		expect(localizer.value.sfc.nested.linked()).toBe('Nested target');
