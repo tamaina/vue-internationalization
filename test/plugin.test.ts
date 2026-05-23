@@ -79,6 +79,7 @@ describe('virtual module generation', () => {
 
 		expect(code).toContain('() => import("virtual:vue-internationalization/locale/en-US")');
 		expect(code).toContain('primaryLocale = "ja-JP"');
+		expect(code).toContain('export const currentLocale = resolveInitialLocale();');
 	});
 
 	it('generates inline build runtime without dynamic locale imports', () => {
@@ -86,6 +87,8 @@ describe('virtual module generation', () => {
 
 		expect(code).not.toContain('import("virtual:vue-internationalization/locale/');
 		expect(code).toContain('Promise.resolve({ global: {}, modules: {} })');
+		expect(code).toContain('export const currentLocale = resolveInitialLocale();');
+		expect(code).not.toContain('onLocaleChange');
 	});
 
 	it('generates locale-specific payload modules', () => {
@@ -202,15 +205,49 @@ describe('virtual module generation', () => {
 		expect(replaced).toContain('const missing = "$locale.module.missing";');
 	});
 
+	it('replaces script localizer calls from inline localizer bindings', () => {
+		const marker = internals.injectInlineLocaleBinding('<script setup></script>', '/src/App.vue');
+		const binding = marker.match(/const \$l = (.*);/)?.[1];
+		const code = [
+			`const l = ${binding};`,
+			'const apples = l.module.nApples({ n });',
+			'const refApples = l.value.module.nApples({ n: count });',
+			'const missing = l.module.missing({ n });',
+		].join('');
+
+		const replaced = internals.replaceInlineLocalizerAccess(
+			code,
+			'en-US',
+			'ja-JP',
+			{
+				'/src/App.vue': {
+					'en-US': {
+						nApples: '{n} apples',
+					},
+					'ja-JP': {
+						nApples: '{n} 個のりんご',
+					},
+				},
+			},
+			{},
+		);
+
+		expect(replaced).toContain('const apples = ((__values) => (__values.n == null ? "{n}" : __values.n) + " apples")({ n });');
+		expect(replaced).toContain('const refApples = ((__values) => (__values.n == null ? "{n}" : __values.n) + " apples")({ n: count });');
+		expect(replaced).toContain('const missing = "$locale.module.missing";');
+	});
+
 	it('rewrites template locale access to inline text markers', () => {
 		const code = internals.rewriteInlineLocaleTemplateAccess(
-			'<template><p>{{ $locale.module.title }}</p><p>{{ $locale.global.missing }}</p></template>',
+			'<template><p>{{ $locale.module.title }}</p><p>{{ $locale.global.missing }}</p><p>{{ $l.module.nApples({ n }) }}</p></template>',
 			'/src/App.vue',
 		);
 
 		expect(code).toContain('__VUE_INTERNATIONALIZATION_INLINE_TEXT__');
+		expect(code).toContain('__VUE_INTERNATIONALIZATION_INLINE_LOCALIZER__');
 		expect(code).toContain('"module.title"');
 		expect(code).toContain('"global.missing"');
+		expect(code).toContain('"module.nApples"');
 	});
 
 	it('replaces template inline text markers with primary and key-path fallback', () => {
@@ -256,6 +293,45 @@ describe('virtual module generation', () => {
 		);
 
 		expect(replaced).toContain('const l = __VUE_INTERNATIONALIZATION_INLINE_LOCALE__');
+	});
+
+	it('replaces inline localizer objects as a fallback for dynamic access', () => {
+		const marker = internals.injectInlineLocaleBinding('<script setup></script>', '/src/App.vue');
+		const binding = marker.match(/const \$l = (.*);/)?.[1];
+		const code = `const l = ${binding};`;
+		const bundle: Record<string, {
+			type: string;
+			fileName: string;
+			code: string;
+			imports: string[];
+			dynamicImports: string[];
+		}> = {
+			'assets/App.js': {
+				type: 'chunk',
+				fileName: 'assets/App.js',
+				code,
+				imports: [],
+				dynamicImports: [],
+			},
+		};
+
+		const manifest = internals.inlineLocaleChunks(
+			bundle,
+			['ja-JP'],
+			'ja-JP',
+			{
+				'/src/App.vue': {
+					'ja-JP': {
+						nApples: '{n} 個のりんご',
+					},
+				},
+			},
+			{},
+		);
+
+		expect(manifest.entries).toHaveLength(1);
+		expect(bundle['assets/App.ja-JP.js'].code).toContain('nApples:(values = {}) => ((__values) =>');
+		expect(bundle['assets/App.ja-JP.js'].code).not.toContain('__VUE_INTERNATIONALIZATION_INLINE_LOCALIZERS__');
 	});
 
 	it('rewrites imports between localized chunks', () => {

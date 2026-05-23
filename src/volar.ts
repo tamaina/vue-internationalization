@@ -2,7 +2,7 @@ import { isAbsolute, resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { existsSync } from 'node:fs';
-import { createLocaleRefType, createLocaleScopeType } from './localeTypes.js';
+import { createLocaleRefType, createLocaleScopeType, createLocalizerRefType, createLocalizerScopeType } from './localeTypes.js';
 import { parseLocaleDictionary } from './parse.js';
 import type { VueLanguagePlugin } from '@vue/language-core';
 import type { Code } from '@vue/language-core';
@@ -36,8 +36,16 @@ const plugin: VueLanguagePlugin<VueInternationalizationVolarPluginConfig> = ({ c
 				global: globalDictionary,
 				module: moduleDictionary,
 			});
-			const declaration = `declare const $locale: ${localeRefType};\n`;
-			const setupExposure = '$locale: typeof $locale;\n';
+			const localizerRefType = createLocalizerRefType({
+				global: globalDictionary,
+				module: moduleDictionary,
+			});
+			const localizerScopeType = createLocalizerScopeType({
+				global: globalDictionary,
+				module: moduleDictionary,
+			});
+			const declaration = `declare const $locale: ${localeRefType};\ndeclare const $l: ${localizerRefType};\n`;
+			const setupExposure = '$locale: typeof $locale;\n$l: typeof $l;\n';
 
 			embeddedFile.content.unshift(declaration);
 			insertAfter(
@@ -48,12 +56,12 @@ const plugin: VueLanguagePlugin<VueInternationalizationVolarPluginConfig> = ({ c
 			insertAfter(
 				embeddedFile.content,
 				'...{} as import(\'vue\').ComponentPublicInstance,\n',
-				`...{} as { $locale: ${localeScopeType}; },\n`,
+				`...{} as { $locale: ${localeScopeType}; $l: ${localizerScopeType}; },\n`,
 			);
 			replaceFirst(
 				embeddedFile.content,
 				'const __VLS_ctx = {} as import(\'vue\').ComponentPublicInstance;',
-				`const __VLS_ctx = {} as import('vue').ComponentPublicInstance & { $locale: ${localeScopeType}; };`,
+				`const __VLS_ctx = {} as import('vue').ComponentPublicInstance & { $locale: ${localeScopeType}; $l: ${localizerScopeType}; };`,
 			);
 		},
 	};

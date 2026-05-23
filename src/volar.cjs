@@ -23,8 +23,16 @@ const plugin = ({ config }) => {
 				global: globalDictionary,
 				module: moduleDictionary,
 			});
-			const declaration = `declare const $locale: ${localeRefType};\n`;
-			const setupExposure = '$locale: typeof $locale;\n';
+			const localizerRefType = createLocalizerRefType({
+				global: globalDictionary,
+				module: moduleDictionary,
+			});
+			const localizerScopeType = createLocalizerScopeType({
+				global: globalDictionary,
+				module: moduleDictionary,
+			});
+			const declaration = `declare const $locale: ${localeRefType};\ndeclare const $l: ${localizerRefType};\n`;
+			const setupExposure = '$locale: typeof $locale;\n$l: typeof $l;\n';
 
 			embeddedFile.content.unshift(declaration);
 			insertAfter(
@@ -35,12 +43,12 @@ const plugin = ({ config }) => {
 			insertAfter(
 				embeddedFile.content,
 				'...{} as import(\'vue\').ComponentPublicInstance,\n',
-				`...{} as { $locale: ${localeScopeType}; },\n`,
+				`...{} as { $locale: ${localeScopeType}; $l: ${localizerScopeType}; },\n`,
 			);
 			replaceFirst(
 				embeddedFile.content,
 				"const __VLS_ctx = {} as import('vue').ComponentPublicInstance;",
-				`const __VLS_ctx = {} as import('vue').ComponentPublicInstance & { $locale: ${localeScopeType}; };`,
+				`const __VLS_ctx = {} as import('vue').ComponentPublicInstance & { $locale: ${localeScopeType}; $l: ${localizerScopeType}; };`,
 			);
 		},
 	};
@@ -224,6 +232,14 @@ function createLocaleRefType(types) {
 	return `Readonly<import("vue").ComputedRef<${createLocaleScopeType(types)}>>`;
 }
 
+function createLocalizerScopeType(types) {
+	return `{ global: ${toLocalizerTypeLiteral(types.global ?? {})}; module: ${toLocalizerTypeLiteral(types.module ?? {})}; }`;
+}
+
+function createLocalizerRefType(types) {
+	return `Readonly<import("vue").ComputedRef<${createLocalizerScopeType(types)}>>`;
+}
+
 function toTypeLiteral(dictionary) {
 	const entries = Object.entries(dictionary).map(([key, value]) => `${toPropertyName(key)}: ${toType(value)};`);
 	return entries.length === 0 ? '{}' : `{ ${entries.join(' ')} }`;
@@ -252,6 +268,19 @@ function toType(value) {
 	}
 
 	return toTypeLiteral(value);
+}
+
+function toLocalizerTypeLiteral(dictionary) {
+	const entries = Object.entries(dictionary).map(([key, value]) => `${toPropertyName(key)}: ${toLocalizerType(value)};`);
+	return entries.length === 0 ? 'import("vue-internationalization/runtime").LocaleLocalizerDictionary' : `{ ${entries.join(' ')} }`;
+}
+
+function toLocalizerType(value) {
+	if (value != null && typeof value === 'object' && !Array.isArray(value)) {
+		return toLocalizerTypeLiteral(value);
+	}
+
+	return 'import("vue-internationalization/runtime").LocaleTemplateFunction';
 }
 
 function toPropertyName(key) {

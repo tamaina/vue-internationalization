@@ -25,6 +25,7 @@ describe('locale SFC parsing', () => {
 		const output = transformVueSfc(input, '/repo/src/App.vue');
 
 		expect(output).toContain('const $locale = __useLocale<{}, { hoge: string; }>(import.meta.url);');
+		expect(output).toContain('const $l = __useLocalizer(import.meta.url) as Readonly<import("vue").ComputedRef<{ global: import("vue-internationalization/runtime").LocaleLocalizerDictionary; module: { hoge: import("vue-internationalization/runtime").LocaleTemplateFunction; }; }>>;');
 		expect(output).not.toContain('<locale');
 		expect(output).toContain('const x = 1;');
 	});
@@ -53,6 +54,7 @@ describe('locale SFC parsing', () => {
 		});
 
 		expect(output).toContain('const $locale = __useLocale<{ fuga: string; }, { hoge: string; nested: { count: number; }; }>');
+		expect(output).toContain('const $l = __useLocalizer(import.meta.url) as Readonly<import("vue").ComputedRef<{ global: { fuga: import("vue-internationalization/runtime").LocaleTemplateFunction; }; module: { hoge: import("vue-internationalization/runtime").LocaleTemplateFunction; nested: { count: import("vue-internationalization/runtime").LocaleTemplateFunction; }; }; }>>;');
 	});
 
 	it('does not inject TypeScript type parameters into JavaScript setup blocks', () => {
@@ -70,6 +72,7 @@ describe('locale SFC parsing', () => {
 		});
 
 		expect(output).toContain('const $locale = __useLocale(import.meta.url);');
+		expect(output).toContain('const $l = __useLocalizer(import.meta.url);');
 		expect(output).not.toContain('__useLocale<');
 	});
 

@@ -1,6 +1,6 @@
 import { parse as parseSfc } from '@vue/compiler-sfc';
 import YAML from 'yaml';
-import { createUseLocaleTypeParameters, type LocaleBindingTypes } from './localeTypes.js';
+import { createLocalizerRefType, createUseLocaleTypeParameters, type LocaleBindingTypes } from './localeTypes.js';
 import type { LocaleDictionary, ParsedVueLocale, SfcLocaleBlock } from './types.js';
 
 export function parseVueLocales(code: string, filename: string): ParsedVueLocale {
@@ -75,10 +75,12 @@ export function stripLocaleBlocks(code: string, filename: string): string {
 export function injectLocaleBinding(code: string, types: LocaleBindingTypes = {}): string {
 	const setupOpen = code.match(/<script\b(?=[^>]*\bsetup\b)[^>]*>/);
 	const typeParameters = !setupOpen || isTypeScriptScript(setupOpen[0]) ? createUseLocaleTypeParameters(types) : '';
+	const localizerType = !setupOpen || isTypeScriptScript(setupOpen[0]) ? ` as ${createLocalizerRefType(types)}` : '';
 	const injection = [
 		'',
-		'import { useLocale as __useLocale } from "virtual:vue-internationalization";',
+		'import { useLocale as __useLocale, useLocalizer as __useLocalizer } from "virtual:vue-internationalization";',
 		`const $locale = __useLocale${typeParameters}(import.meta.url);`,
+		`const $l = __useLocalizer(import.meta.url)${localizerType};`,
 		'',
 	].join('\n');
 

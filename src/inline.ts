@@ -32,11 +32,15 @@ type MutableOutputBundle = Record<string, unknown>;
 
 const INLINE_MARKER_PREFIX = '__VUE_INTERNATIONALIZATION_INLINE__:';
 const INLINE_CALL_RE = /__VUE_INTERNATIONALIZATION_INLINE_LOCALE__\("(__VUE_INTERNATIONALIZATION_INLINE__:[A-Za-z0-9+/=]+)"\)/g;
+const INLINE_LOCALIZERS_CALL_RE = /__VUE_INTERNATIONALIZATION_INLINE_LOCALIZERS__\("(__VUE_INTERNATIONALIZATION_INLINE__:[A-Za-z0-9+/=]+)"\)/g;
 const INLINE_BINDING_RE =
 	/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*__VUE_INTERNATIONALIZATION_INLINE_LOCALE__\("(__VUE_INTERNATIONALIZATION_INLINE__:[A-Za-z0-9+/=]+)"\)/g;
 const INLINE_TEXT_RE =
 	/(?:\b[A-Za-z_$][\w$]*\.)?__VUE_INTERNATIONALIZATION_INLINE_TEXT__\("(__VUE_INTERNATIONALIZATION_INLINE__:[A-Za-z0-9+/=]+)","((?:global|module)(?:\.[A-Za-z_$][\w$]*)+)"\)/g;
+const INLINE_LOCALIZER_RE =
+	/(?:\b[A-Za-z_$][\w$]*\.)?__VUE_INTERNATIONALIZATION_INLINE_LOCALIZER__\("(__VUE_INTERNATIONALIZATION_INLINE__:[A-Za-z0-9+/=]+)","((?:global|module)(?:\.[A-Za-z_$][\w$]*)+)",(\{[^)]*\})\)/g;
 const LOCALE_ACCESS_RE = /\$locale(?:\.value)?\.(global|module)((?:\.[A-Za-z_$][\w$]*)+)/g;
+const LOCALIZER_ACCESS_RE = /\$l(?:\.value)?\.(global|module)((?:\.[A-Za-z_$][\w$]*)+)\((\{[^)]*\})\)/g;
 
 export function createInlineLocaleMarker(moduleId: string): string {
 	return `${INLINE_MARKER_PREFIX}${Buffer.from(moduleId, 'utf8').toString('base64')}`;
@@ -46,6 +50,7 @@ export function injectInlineLocaleBinding(code: string, moduleId: string): strin
 	const injection = [
 		'',
 		`const $locale = __VUE_INTERNATIONALIZATION_INLINE_LOCALE__(${JSON.stringify(createInlineLocaleMarker(moduleId))});`,
+		`const $l = __VUE_INTERNATIONALIZATION_INLINE_LOCALIZERS__(${JSON.stringify(createInlineLocaleMarker(moduleId))});`,
 		'',
 	].join('\n');
 
@@ -63,9 +68,13 @@ export function rewriteInlineLocaleTemplateAccess(code: string, moduleId: string
 	const marker = createInlineLocaleMarker(moduleId);
 
 	return code.replace(/<template\b[^>]*>[\s\S]*?<\/template>/g, (template) =>
-		template.replace(LOCALE_ACCESS_RE, (_match, scope: 'global' | 'module', pathExpression: string) =>
-			`__VUE_INTERNATIONALIZATION_INLINE_TEXT__(${JSON.stringify(marker)},${JSON.stringify(`${scope}${pathExpression}`)})`,
-		),
+		template
+			.replace(LOCALIZER_ACCESS_RE, (_match, scope: 'global' | 'module', pathExpression: string, valuesExpression: string) =>
+				`__VUE_INTERNATIONALIZATION_INLINE_LOCALIZER__(${JSON.stringify(marker)},${JSON.stringify(`${scope}${pathExpression}`)},${valuesExpression})`,
+			)
+			.replace(LOCALE_ACCESS_RE, (_match, scope: 'global' | 'module', pathExpression: string) =>
+				`__VUE_INTERNATIONALIZATION_INLINE_TEXT__(${JSON.stringify(marker)},${JSON.stringify(`${scope}${pathExpression}`)})`,
+			),
 	);
 }
 
@@ -135,12 +144,63 @@ export function replaceInlineLocaleMarkers(
 	globalMessages: LocaleMessages,
 ): string {
 	return replaceInlineLocaleObjects(
-		replaceInlineLocaleTextAccess(replaceInlineLocaleMemberAccess(code, locale, primaryLocale, modules, globalMessages), locale, primaryLocale, modules, globalMessages),
+		replaceInlineLocaleTextAccess(
+			replaceInlineLocalizerAccess(
+				replaceInlineLocaleMemberAccess(code, locale, primaryLocale, modules, globalMessages),
+				locale,
+				primaryLocale,
+				modules,
+				globalMessages,
+			),
+			locale,
+			primaryLocale,
+			modules,
+			globalMessages,
+		),
 		locale,
 		primaryLocale,
 		modules,
 		globalMessages,
 	);
+}
+
+export function replaceInlineLocalizerAccess(
+	code: string,
+	locale: string,
+	primaryLocale: string,
+	modules: ModuleMessages,
+	globalMessages: LocaleMessages,
+): string {
+	let next = code.replaceAll(INLINE_LOCALIZER_RE, (_match, marker: string, path: string, valuesExpression: string) => {
+		const moduleId = decodeInlineLocaleMarker(marker);
+		const [scope, ...keys] = path.split('.') as ['global' | 'module', ...string[]];
+		const payload: InlineLocalePayload = {
+			global: mergeWithPrimary(globalMessages[locale], globalMessages[primaryLocale]),
+			module: mergeWithPrimary(modules[moduleId]?.[locale], modules[moduleId]?.[primaryLocale]),
+		};
+		const value = getValueByPath(payload[scope], keys);
+		const template = typeof value === 'string' ? value : `$locale.${path}`;
+
+		return createInlineTemplateExpression(template, valuesExpression);
+	});
+
+	for (const match of code.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*__VUE_INTERNATIONALIZATION_INLINE_LOCALIZERS__\("(__VUE_INTERNATIONALIZATION_INLINE__:[A-Za-z0-9+/=]+)"\)/g)) {
+		const [, variableName, marker] = match;
+
+		if (!variableName || !marker) {
+			continue;
+		}
+
+		const moduleId = decodeInlineLocaleMarker(marker);
+		const payload: InlineLocalePayload = {
+			global: mergeWithPrimary(globalMessages[locale], globalMessages[primaryLocale]),
+			module: mergeWithPrimary(modules[moduleId]?.[locale], modules[moduleId]?.[primaryLocale]),
+		};
+
+		next = replaceLocalizerCallAccess(next, variableName, payload);
+	}
+
+	return next;
 }
 
 export function replaceInlineLocaleTextAccess(
@@ -198,7 +258,15 @@ function replaceInlineLocaleObjects(
 	modules: ModuleMessages,
 	globalMessages: LocaleMessages,
 ): string {
-	return code.replaceAll(INLINE_CALL_RE, (_match, marker: string) => {
+	return code.replaceAll(INLINE_LOCALIZERS_CALL_RE, (_match, marker: string) => {
+		const moduleId = decodeInlineLocaleMarker(marker);
+		const payload: InlineLocalePayload = {
+			global: mergeWithPrimary(globalMessages[locale], globalMessages[primaryLocale]),
+			module: mergeWithPrimary(modules[moduleId]?.[locale], modules[moduleId]?.[primaryLocale]),
+		};
+
+		return `{global:${createLocalizerObjectExpression(payload.global)},module:${createLocalizerObjectExpression(payload.module)}}`;
+	}).replaceAll(INLINE_CALL_RE, (_match, marker: string) => {
 		const moduleId = decodeInlineLocaleMarker(marker);
 		const payload: InlineLocalePayload = {
 			global: createFallbackObject(mergeWithPrimary(globalMessages[locale], globalMessages[primaryLocale]), 'global'),
@@ -292,6 +360,64 @@ function replacePayloadMemberAccess(code: string, variableName: string, payload:
 
 		return JSON.stringify(value ?? `$locale.${[scope, ...path].join('.')}`);
 	});
+}
+
+function replaceLocalizerCallAccess(code: string, variableName: string, payload: InlineLocalePayload): string {
+	const memberRe = new RegExp(`\\b${escapeRegExp(variableName)}(?:\\.value)?\\.(global|module)((?:\\.[A-Za-z_$][\\w$]*)+)\\((\\{[^)]*\\})\\)`, 'gu');
+
+	return code.replace(memberRe, (match, scope: 'global' | 'module', pathExpression: string, valuesExpression: string) => {
+		const path = pathExpression.slice(1).split('.');
+		const value = getValueByPath(payload[scope], path);
+		const template = typeof value === 'string' ? value : `$locale.${[scope, ...path].join('.')}`;
+
+		return createInlineTemplateExpression(template, valuesExpression);
+	});
+}
+
+function createInlineTemplateExpression(template: string, valuesExpression: string): string {
+	const parts: string[] = [];
+	let cursor = 0;
+	let hasToken = false;
+
+	for (const match of template.matchAll(/\{([A-Za-z_$][\w$]*)\}/g)) {
+		const index = match.index;
+		const key = match[1];
+
+		if (!key) {
+			continue;
+		}
+
+		if (index > cursor) {
+			parts.push(JSON.stringify(template.slice(cursor, index)));
+		}
+
+		parts.push(`(__values.${key} == null ? ${JSON.stringify(`{${key}}`)} : __values.${key})`);
+		hasToken = true;
+		cursor = index + match[0].length;
+	}
+
+	if (cursor < template.length) {
+		parts.push(JSON.stringify(template.slice(cursor)));
+	}
+
+	if (!hasToken) {
+		return JSON.stringify(template);
+	}
+
+	return `((__values) => ${parts.join(' + ')})(${valuesExpression})`;
+}
+
+function createLocalizerObjectExpression(dictionary: LocaleDictionary): string {
+	const entries = Object.entries(dictionary).map(([key, value]) => {
+		const property = /^[$A-Z_a-z][$\w]*$/.test(key) ? key : JSON.stringify(key);
+		const expression = isDictionary(value)
+			? createLocalizerObjectExpression(value)
+			: `(values = {}) => ${createInlineTemplateExpression(typeof value === 'string' ? value : String(value), 'values')}`;
+
+		return `${property}:${expression}`;
+	});
+
+	return `{${entries.join(',')}}`;
 }
 
 function mergeWithPrimary(current: LocaleDictionary | undefined, primary: LocaleDictionary | undefined): LocaleDictionary {

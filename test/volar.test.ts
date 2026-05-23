@@ -1,8 +1,11 @@
 import { resolve } from 'node:path';
+import { createRequire } from 'node:module';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { createParsedCommandLine, createVueLanguagePlugin, forEachEmbeddedCode, getDefaultCompilerOptions } from '@vue/language-core';
 import vueInternationalizationVolar from '../src/volar.js';
+
+const require = createRequire(import.meta.url);
 
 describe('volar plugin', () => {
 	it('can be loaded from vueCompilerOptions.plugins via require export', () => {
@@ -17,10 +20,42 @@ describe('volar plugin', () => {
 		)).toBe(true);
 	});
 
+	it('injects $l through the CommonJS Volar entry used by Vue Language Tools', () => {
+		const vueCompilerOptions = getDefaultCompilerOptions();
+		vueCompilerOptions.plugins = [
+			withConfig(require('../src/volar.cjs') as typeof vueInternationalizationVolar, {
+				__moduleConfig: {
+					name: 'vue-internationalization/volar',
+					primaryLocale: 'ja-JP',
+				},
+			}),
+		];
+		const plugin = createVueLanguagePlugin(ts, {}, vueCompilerOptions, String);
+		const fileName = resolve('examples/motivation-1/src/App.vue');
+		const source = [
+			'<template>{{ $l.module.count({ n: 1 }) }}</template>',
+			'<locale locale="ja-JP" lang="yaml">',
+			'count: "{n} 個"',
+			'</locale>',
+		].join('\n');
+		const root = plugin.createVirtualCode?.(fileName, 'vue', ts.ScriptSnapshot.fromString(source), {} as never);
+
+		if (!root) {
+			throw new Error('Expected Vue virtual code to be created.');
+		}
+
+		const scriptCode = [...forEachEmbeddedCode(root)]
+			.find((code) => code.id === 'script_ts')
+			?.snapshot.getText(0, Number.MAX_SAFE_INTEGER);
+
+		expect(scriptCode).toContain('declare const $l: Readonly<import("vue").ComputedRef');
+		expect(scriptCode).toContain('__VLS_ctx.$l.module.count');
+	});
+
 	it('injects file-local setup bindings into Vue virtual code', () => {
 		const vueCompilerOptions = getDefaultCompilerOptions();
 		vueCompilerOptions.plugins = [
-			Object.assign(vueInternationalizationVolar, {
+			withConfig(vueInternationalizationVolar, {
 				__moduleConfig: {
 					name: 'vue-internationalization/volar',
 					primaryLocale: 'ja-JP',
@@ -35,12 +70,14 @@ describe('volar plugin', () => {
 		const plugin = createVueLanguagePlugin(ts, {}, vueCompilerOptions, String);
 		const fileName = resolve('examples/motivation-1/src/App.vue');
 		const source = [
-			'<template>{{ $locale.module.hoge }} {{ $locale.global.fuga }}</template>',
+			'<template>{{ $locale.module.hoge }} {{ $locale.global.fuga }} {{ $l.module.count({ n: 1 }) }}</template>',
 			'<script setup lang="ts">',
 			'const title = $locale.value.module.hoge;',
+			'const count = $l.value.module.count({ n: 1 });',
 			'</script>',
 			'<locale locale="ja-JP" lang="yaml">',
 			'hoge: ほげ',
+			'count: "{n} 個"',
 			'</locale>',
 		].join('\n');
 		const root = plugin.createVirtualCode?.(fileName, 'vue', ts.ScriptSnapshot.fromString(source), {} as never);
@@ -57,9 +94,22 @@ describe('volar plugin', () => {
 			?.snapshot.getText(0, Number.MAX_SAFE_INTEGER);
 
 		expect(scriptCode).not.toContain('interface ComponentCustomProperties');
-		expect(scriptCode).toContain('declare const $locale: Readonly<import("vue").ComputedRef<import("vue-internationalization/runtime").LocaleScope<{ fuga: string; }, { hoge: string; }>>>');
-		expect(scriptCode).toContain('ComponentPublicInstance & { $locale: import("vue-internationalization/runtime").LocaleScope<{ fuga: string; }, { hoge: string; }>; }');
+		expect(scriptCode).toContain('declare const $locale: Readonly<import("vue").ComputedRef<import("vue-internationalization/runtime").LocaleScope<');
+		expect(scriptCode).toContain('{ hoge: string; count: string; }>>>');
+		expect(scriptCode).toContain('declare const $l: Readonly<import("vue").ComputedRef<{ global:');
+		expect(scriptCode).toContain('module: { hoge: import("vue-internationalization/runtime").LocaleTemplateFunction; count: import("vue-internationalization/runtime").LocaleTemplateFunction; }; }>>');
+		expect(scriptCode).toContain('ComponentPublicInstance & { $locale: import("vue-internationalization/runtime").LocaleScope<');
+		expect(scriptCode).toContain('$l: { global:');
 		expect(scriptCode).toContain('__VLS_ctx.$locale.module.hoge');
-		expect(scriptSetupRaw?.trim()).toBe('const title = $locale.value.module.hoge;');
+		expect(scriptCode).toContain('__VLS_ctx.$l.module.count');
+		expect(scriptSetupRaw?.trim()).toBe('const title = $locale.value.module.hoge;\nconst count = $l.value.module.count({ n: 1 });');
 	});
 });
+
+function withConfig(
+	plugin: typeof vueInternationalizationVolar,
+	config: { __moduleConfig: Record<string, unknown> },
+): typeof vueInternationalizationVolar {
+	const wrapped: typeof vueInternationalizationVolar = (context) => plugin(context);
+	return Object.assign(wrapped, config);
+}
