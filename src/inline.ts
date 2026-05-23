@@ -4,6 +4,7 @@ import MagicString from 'magic-string';
 import { compileLocaleMessage } from './message.js';
 import { injectScriptSetup } from './scriptSetup.js';
 import type { Node as EstreeNode } from 'estree-walker';
+import type { LocaleMessageToken } from './message.js';
 import type { LocaleDictionary } from './types.js';
 
 export type InlineLocalePayload = {
@@ -585,7 +586,7 @@ function parseLegacyInlineMarkerFallback(
 			}
 
 			const template = typeof resolved.value === 'string' ? resolved.value : `$locale.${path}`;
-			return createInlineTemplateExpression(template, valuesExpression);
+			return createInlineTemplateExpression(template, valuesExpression, resolvePayload(decodeInlineLocaleMarker(marker)), resolved.scope);
 		});
 	}
 
@@ -687,7 +688,7 @@ function getInlineLocalizerCallReplacement(
 	}
 
 	const template = typeof resolved.value === 'string' ? resolved.value : `$locale.${path}`;
-	return createInlineTemplateExpression(template, code.slice(values.start, values.end));
+	return createInlineTemplateExpression(template, code.slice(values.start, values.end), resolvePayload(decodeInlineLocaleMarker(marker)), resolved.scope);
 }
 
 function getInlineLocaleObjectReplacement(node: AstCallExpression, resolvePayload: InlinePayloadResolver): string | undefined {
@@ -714,7 +715,7 @@ function getInlineLocalizerObjectReplacement(node: AstCallExpression, resolvePay
 	}
 
 	const payload = resolvePayload(decodeInlineLocaleMarker(marker));
-	return createInlineRefAliasExpression(`{env:${createLocalizerObjectExpression(payload.global)},sfc:${createLocalizerObjectExpression(payload.module)}}`);
+	return createInlineRefAliasExpression(`{env:${createLocalizerObjectExpression(payload.global, payload, 'env')},sfc:${createLocalizerObjectExpression(payload.module, payload, 'sfc')}}`);
 }
 
 function getLocalizerBindingCallReplacement(
@@ -744,7 +745,7 @@ function getLocalizerBindingCallReplacement(
 	const value = getValueByPath(getPayloadScope(payload, normalized.scope), normalized.keys);
 	const template = typeof value === 'string' ? value : `$locale.${[normalized.scope, ...normalized.keys].join('.')}`;
 
-	return createInlineTemplateExpression(template, code.slice(values.start, values.end));
+	return createInlineTemplateExpression(template, code.slice(values.start, values.end), payload, normalized.scope);
 }
 
 function getLocaleMemberReplacement(
@@ -894,9 +895,15 @@ function isVariableDeclarator(node: AstNode): node is AstVariableDeclarator {
 	return node.type === 'VariableDeclarator';
 }
 
-function createInlineTemplateExpression(template: string, valuesExpression: string): string {
+function createInlineTemplateExpression(
+	template: string,
+	valuesExpression: string,
+	payload?: InlineLocalePayload,
+	scope?: PublicLocaleScope,
+	seen: Set<string> = new Set(),
+): string {
 	const cases = compileLocaleMessage(template).cases;
-	const caseExpressions = cases.map((tokens) => createInlineTokenExpression(tokens));
+	const caseExpressions = cases.map((tokens) => createInlineTokenExpression(tokens, payload, scope, seen));
 
 	if (cases.length > 1) {
 		return `((__values) => { const __plural = typeof __values === "number" ? __values : Number(__values?.count ?? __values?.n ?? 1); const __index = ${createInlinePluralIndexExpression('Math.abs(Math.trunc(__plural))', cases.length)}; return [${caseExpressions.join(',')}][__index]; })(${valuesExpression})`;
@@ -909,7 +916,12 @@ function createInlineTemplateExpression(template: string, valuesExpression: stri
 	return `((__values) => ${caseExpressions[0] ?? '""'})(${valuesExpression})`;
 }
 
-function createInlineTokenExpression(tokens: ReturnType<typeof compileLocaleMessage>['cases'][number]): string {
+function createInlineTokenExpression(
+	tokens: ReturnType<typeof compileLocaleMessage>['cases'][number],
+	payload: InlineLocalePayload | undefined,
+	scope: PublicLocaleScope | undefined,
+	seen: Set<string>,
+): string {
 	const parts = tokens.map((token) => {
 		switch (token.type) {
 			case 'text':
@@ -920,7 +932,7 @@ function createInlineTokenExpression(tokens: ReturnType<typeof compileLocaleMess
 			case 'list':
 				return `(Array.isArray(__values) && __values[${token.index}] != null ? __values[${token.index}] : ${JSON.stringify(`{${token.index}}`)})`;
 			case 'linked':
-				return JSON.stringify(`@:${token.key}`);
+				return createInlineLinkedExpression(token, payload, scope, seen);
 		}
 	});
 
@@ -935,12 +947,83 @@ function createInlinePluralIndexExpression(choiceExpression: string, choicesLeng
 	return `Math.min(${indexExpression}, ${choicesLength - 1})`;
 }
 
-function createLocalizerObjectExpression(dictionary: LocaleDictionary): string {
+function createInlineLinkedExpression(
+	token: Extract<LocaleMessageToken, { type: 'linked' }>,
+	payload: InlineLocalePayload | undefined,
+	scope: PublicLocaleScope | undefined,
+	seen: Set<string>,
+): string {
+	const resolved = payload && scope ? resolveInlineLinkedMessage(payload, token.key, scope, seen) : undefined;
+
+	if (!resolved) {
+		return JSON.stringify(`@:${token.key}`);
+	}
+
+	const expression = createInlineTemplateExpression(resolved.value, '__values', payload, resolved.scope, resolved.seen);
+
+	if (!token.modifier) {
+		return expression;
+	}
+
+	switch (token.modifier) {
+		case 'upper':
+			return `((${expression}).toLocaleUpperCase())`;
+		case 'lower':
+			return `((${expression}).toLocaleLowerCase())`;
+		case 'capitalize':
+			return `((__linked) => __linked.charAt(0).toLocaleUpperCase() + __linked.slice(1))(${expression})`;
+		default:
+			return expression;
+	}
+}
+
+function resolveInlineLinkedMessage(
+	payload: InlineLocalePayload,
+	key: string,
+	scope: PublicLocaleScope,
+	seen: Set<string>,
+): { scope: PublicLocaleScope; value: string; seen: Set<string> } | undefined {
+	const path = resolveInlineLinkedPath(key, scope);
+	const resolvedKey = path.join('.');
+
+	if (seen.has(resolvedKey)) {
+		return undefined;
+	}
+
+	const [resolvedScope, ...keys] = path;
+	const value = getValueByPath(getPayloadScope(payload, resolvedScope), keys);
+
+	if (typeof value !== 'string') {
+		return undefined;
+	}
+
+	return {
+		scope: resolvedScope,
+		value,
+		seen: new Set([...seen, resolvedKey]),
+	};
+}
+
+function resolveInlineLinkedPath(key: string, scope: PublicLocaleScope): [PublicLocaleScope, ...string[]] {
+	const [head = '', ...rest] = key.split('.');
+
+	if (isPublicLocaleScope(head) && rest.length > 0) {
+		return [head, ...rest];
+	}
+
+	return [scope, head, ...rest];
+}
+
+function createLocalizerObjectExpression(
+	dictionary: LocaleDictionary,
+	payload?: InlineLocalePayload,
+	scope?: PublicLocaleScope,
+): string {
 	const entries = Object.entries(dictionary).map(([key, value]) => {
 		const property = /^[$A-Z_a-z][$\w]*$/.test(key) ? key : JSON.stringify(key);
 		const expression = isDictionary(value)
-			? createLocalizerObjectExpression(value)
-			: `(values = {}) => ${createInlineTemplateExpression(typeof value === 'string' ? value : String(value), 'values')}`;
+			? createLocalizerObjectExpression(value, payload, scope)
+			: `(values = {}) => ${createInlineTemplateExpression(typeof value === 'string' ? value : String(value), 'values', payload, scope)}`;
 
 		return `${property}:${expression}`;
 	});

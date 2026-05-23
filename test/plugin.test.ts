@@ -341,6 +341,45 @@ describe('virtual module generation', () => {
 		expect(replaced).toContain('const missing = "$locale.sfc.missing";');
 	});
 
+	it('resolves linked messages in inline localizer calls', () => {
+		const marker = internals.injectInlineLocaleBinding('<script setup></script>', '/src/App.vue');
+		const binding = marker.match(/const \$l = (.*);/)?.[1];
+		const code = [
+			`const l = ${binding};`,
+			'const relative = l.sfc.linked({ count });',
+			'const env = l.sfc.linkedEnv({ count });',
+			'const sfc = l.sfc.linkedSfc({ count });',
+			'const recursive = l.sfc.recursive({ count });',
+		].join('');
+
+		const replaced = internals.replaceInlineLocalizerAccess(
+			code,
+			'en-US',
+			'ja-JP',
+			{
+				'/src/App.vue': {
+					'en-US': {
+						name: 'World {count}',
+						linked: 'Hello @.lower:name',
+						linkedEnv: 'From @:env.appName',
+						linkedSfc: 'From @:sfc.name',
+						recursive: '@:recursive',
+					},
+				},
+			},
+			{
+				'en-US': {
+					appName: 'Example {count}',
+				},
+			},
+		);
+
+		expect(replaced).toContain('const relative = ((__values) => "Hello " + ((((__values) => "World " + ((typeof __values === "number" ? (__values) : __values?.["count"]) ?? "{count}"))(__values)).toLocaleLowerCase()))({ count });');
+		expect(replaced).toContain('const env = ((__values) => "From " + ((__values) => "Example " + ((typeof __values === "number" ? (__values) : __values?.["count"]) ?? "{count}"))(__values))({ count });');
+		expect(replaced).toContain('const sfc = ((__values) => "From " + ((__values) => "World " + ((typeof __values === "number" ? (__values) : __values?.["count"]) ?? "{count}"))(__values))({ count });');
+		expect(replaced).toContain('const recursive = ((__values) => ((__values) => "@:recursive")(__values))({ count });');
+	});
+
 	it('rewrites template locale access to inline text markers', () => {
 		const code = internals.rewriteInlineLocaleTemplateAccess(
 			'<template><p>{{ $locale.sfc.title }}</p><p>{{ $locale.env.missing }}</p><p>{{ $l.sfc.nApples({ n: Math.max(n, 1) }) }}</p></template>',
