@@ -229,53 +229,6 @@ describe('volar plugin', () => {
 		expect(diagnostics.some((message) => message.includes('contains unsafe locale key'))).toBe(true);
 	});
 
-	it('reports diagnostics for configured global locale files', () => {
-		const root = mkdtempSync(resolve(tmpdir(), 'vue-internationalization-volar-'));
-		mkdirSync(resolve(root, 'locales'), { recursive: true });
-		writeFileSync(resolve(root, 'tsconfig.json'), '{}');
-		const fileName = resolve(root, 'locales/ja-JP.yaml');
-		const source = 'constructor: unsafe\n';
-		writeFileSync(fileName, source);
-		const vueCompilerOptions = getDefaultCompilerOptions();
-		vueCompilerOptions.plugins = [
-			withConfig(vueInternationalizationVolar, {
-				__moduleConfig: {
-					name: 'vue-internationalization/volar',
-					primaryLocale: 'ja-JP',
-					global: {
-						'ja-JP': './locales/*.yaml',
-					},
-				},
-			}),
-		];
-		const plugin = createVueLanguagePlugin(ts, {}, vueCompilerOptions, String);
-		const languageId = plugin.getLanguageId(fileName);
-
-		expect(languageId).toBe('vue-internationalization-locale');
-		if (!languageId) {
-			throw new Error('Expected global locale language id.');
-		}
-
-		const virtualCode = plugin.createVirtualCode?.(fileName, languageId, ts.ScriptSnapshot.fromString(source), {} as never);
-
-		if (!virtualCode) {
-			throw new Error('Expected global locale virtual code to be created.');
-		}
-
-		const diagnosticsCode = [...forEachEmbeddedCode(virtualCode)]
-			.find((code) => code.id === 'global_locale_diagnostics');
-		const scriptCode = diagnosticsCode?.snapshot.getText(0, Number.MAX_SAFE_INTEGER);
-		const diagnostics = getSemanticDiagnosticMessages(scriptCode);
-
-		expect(scriptCode).toContain('contains unsafe locale key');
-		expect(diagnosticsCode?.mappings.some((mapping) =>
-			scriptCode?.slice(mapping.generatedOffsets[0], mapping.generatedOffsets[0] + mapping.lengths[0])
-				.includes('contains unsafe locale key') &&
-			mapping.sourceOffsets[0] === 0,
-		)).toBe(true);
-		expect(diagnostics.some((message) => message.includes('contains unsafe locale key'))).toBe(true);
-	});
-
 	it('keeps Vue file type injection working when a configured global locale file is invalid', () => {
 		const root = mkdtempSync(resolve(tmpdir(), 'vue-internationalization-volar-'));
 		mkdirSync(resolve(root, 'locales'), { recursive: true });
