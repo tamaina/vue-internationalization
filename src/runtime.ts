@@ -11,7 +11,7 @@ export type LocaleBundle = {
 
 export type LocaleLoader = () => Promise<LocaleBundle | { default: LocaleBundle }>;
 
-export type I18nRuntimeOptions = {
+export type InternationalizationRuntimeOptions = {
   primaryLocale: string;
   initialLocale?: string;
   fallbackLocale?: string;
@@ -19,7 +19,7 @@ export type I18nRuntimeOptions = {
   onLocaleChange?: (locale: string) => void | Promise<void>;
 };
 
-export type I18nInstance = {
+export type InternationalizationInstance = {
   locale: string;
   primaryLocale: string;
   ready: Promise<void>;
@@ -28,27 +28,27 @@ export type I18nInstance = {
   install(app: App): void;
 };
 
-type I18nState = {
+type InternationalizationState = {
   locale: string;
   primaryLocale: string;
   fallbackLocale: string;
   bundles: Record<string, LocaleBundle>;
 };
 
-const I18N_KEY: InjectionKey<I18nInstance> = Symbol('vue-internationalization');
+const INTERNATIONALIZATION_KEY: InjectionKey<InternationalizationInstance> = Symbol('vue-internationalization');
 const EMPTY_DICTIONARY: RuntimeLocaleDictionary = {};
-const STATES = new WeakMap<I18nInstance, I18nState>();
-let activeI18n: I18nInstance | undefined;
+const STATES = new WeakMap<InternationalizationInstance, InternationalizationState>();
+let activeInternationalization: InternationalizationInstance | undefined;
 
-export function createI18n(options: I18nRuntimeOptions): I18nInstance {
-  const state = reactive<I18nState>({
+export function createInternationalization(options: InternationalizationRuntimeOptions): InternationalizationInstance {
+  const state = reactive<InternationalizationState>({
     locale: options.initialLocale ?? options.primaryLocale,
     primaryLocale: options.primaryLocale,
     fallbackLocale: options.fallbackLocale ?? options.primaryLocale,
     bundles: {}
   });
 
-  const instance: I18nInstance = {
+  const instance: InternationalizationInstance = {
     get locale() {
       return state.locale;
     },
@@ -80,9 +80,9 @@ export function createI18n(options: I18nRuntimeOptions): I18nInstance {
       await options.onLocaleChange?.(locale);
     },
     install(app) {
-      app.provide(I18N_KEY, instance);
+      app.provide(INTERNATIONALIZATION_KEY, instance);
       app.config.globalProperties.$setLocale = instance.setLocale.bind(instance);
-      setActiveI18n(instance);
+      setActiveInternationalization(instance);
     }
   };
 
@@ -94,28 +94,28 @@ export function createI18n(options: I18nRuntimeOptions): I18nInstance {
   return instance;
 }
 
-export function setActiveI18n(instance: I18nInstance): void {
-  activeI18n = instance;
+export function setActiveInternationalization(instance: InternationalizationInstance): void {
+  activeInternationalization = instance;
 }
 
-export function useI18n(): I18nInstance {
-  const i18n = inject(I18N_KEY, activeI18n);
+export function useInternationalization(): InternationalizationInstance {
+  const internationalization = inject(INTERNATIONALIZATION_KEY, activeInternationalization);
 
-  if (!i18n) {
-    throw new Error('vue-internationalization is not installed. Call app.use(createI18n()).');
+  if (!internationalization) {
+    throw new Error('vue-internationalization is not installed. Call app.use(createInternationalization()).');
   }
 
-  return i18n;
+  return internationalization;
 }
 
 export function useLocale(moduleUrl: string) {
-  const i18n = useI18n();
+  const internationalization = useInternationalization();
 
-  return readonly(computed(() => resolveLocale(i18n, moduleUrl)));
+  return readonly(computed(() => resolveLocale(internationalization, moduleUrl)));
 }
 
-function resolveLocale(i18n: I18nInstance, moduleUrl: string) {
-  const state = getState(i18n);
+function resolveLocale(internationalization: InternationalizationInstance, moduleUrl: string) {
+  const state = getState(internationalization);
   const current = state.bundles[state.locale];
   const fallback = state.bundles[state.fallbackLocale];
   const moduleId = normalizeRuntimeModuleUrl(moduleUrl);
@@ -126,8 +126,8 @@ function resolveLocale(i18n: I18nInstance, moduleUrl: string) {
   };
 }
 
-function getState(i18n: I18nInstance): I18nState {
-  const state = STATES.get(i18n);
+function getState(internationalization: InternationalizationInstance): InternationalizationState {
+  const state = STATES.get(internationalization);
 
   if (!state) {
     throw new Error('Invalid vue-internationalization instance.');

@@ -31,7 +31,9 @@ type MutableOutputChunk = {
 type MutableOutputBundle = Record<string, unknown>;
 
 const INLINE_MARKER_PREFIX = '__VUE_INTERNATIONALIZATION_INLINE__:';
-const INLINE_CALL_RE = /__VUE_I18N_INLINE_LOCALE__\("(__VUE_INTERNATIONALIZATION_INLINE__:[A-Za-z0-9+/=]+)"\)/g;
+const INLINE_CALL_RE = /__VUE_INTERNATIONALIZATION_INLINE_LOCALE__\("(__VUE_INTERNATIONALIZATION_INLINE__:[A-Za-z0-9+/=]+)"\)/g;
+const INLINE_BINDING_RE =
+  /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*__VUE_INTERNATIONALIZATION_INLINE_LOCALE__\("(__VUE_INTERNATIONALIZATION_INLINE__:[A-Za-z0-9+/=]+)"\)/g;
 
 export function createInlineLocaleMarker(moduleId: string): string {
   return `${INLINE_MARKER_PREFIX}${Buffer.from(moduleId, 'utf8').toString('base64')}`;
@@ -40,7 +42,7 @@ export function createInlineLocaleMarker(moduleId: string): string {
 export function injectInlineLocaleBinding(code: string, moduleId: string): string {
   const injection = [
     '',
-    `const $locale = __VUE_I18N_INLINE_LOCALE__(${JSON.stringify(createInlineLocaleMarker(moduleId))});`,
+    `const $locale = __VUE_INTERNATIONALIZATION_INLINE_LOCALE__(${JSON.stringify(createInlineLocaleMarker(moduleId))});`,
     ''
   ].join('\n');
 
@@ -118,6 +120,42 @@ export function replaceInlineLocaleMarkers(
   modules: ModuleMessages,
   globalMessages: LocaleMessages
 ): string {
+  return replaceInlineLocaleObjects(replaceInlineLocaleMemberAccess(code, locale, modules, globalMessages), locale, modules, globalMessages);
+}
+
+export function replaceInlineLocaleMemberAccess(
+  code: string,
+  locale: string,
+  modules: ModuleMessages,
+  globalMessages: LocaleMessages
+): string {
+  let next = code;
+
+  for (const match of code.matchAll(INLINE_BINDING_RE)) {
+    const [, variableName, marker] = match;
+
+    if (!variableName || !marker) {
+      continue;
+    }
+
+    const moduleId = decodeInlineLocaleMarker(marker);
+    const payload: InlineLocalePayload = {
+      global: globalMessages[locale] ?? {},
+      module: modules[moduleId]?.[locale] ?? {}
+    };
+
+    next = replacePayloadMemberAccess(next, variableName, payload);
+  }
+
+  return next;
+}
+
+function replaceInlineLocaleObjects(
+  code: string,
+  locale: string,
+  modules: ModuleMessages,
+  globalMessages: LocaleMessages
+): string {
   return code.replaceAll(INLINE_CALL_RE, (_match, marker: string) => {
     const moduleId = decodeInlineLocaleMarker(marker);
     const payload: InlineLocalePayload = {
@@ -162,7 +200,7 @@ export function augmentViteManifestJson(source: string, inlineManifest: InlineCh
     const [key, value] = manifestEntry;
     value.file = entry.locales[inlineManifest.primaryLocale];
     value.locale = inlineManifest.primaryLocale;
-    value.i18n = {
+    value.internationalization = {
       primaryLocale: inlineManifest.primaryLocale,
       locales: entry.locales
     };
@@ -172,7 +210,7 @@ export function augmentViteManifestJson(source: string, inlineManifest: InlineCh
         ...value,
         file: fileName,
         locale,
-        isI18nLocale: true
+        isInternationalizationLocale: true
       };
     }
   }
@@ -201,6 +239,30 @@ function replaceChunkFileReferences(code: string, localizableFiles: Set<string>,
   }
 
   return next;
+}
+
+function replacePayloadMemberAccess(code: string, variableName: string, payload: InlineLocalePayload): string {
+  const memberRe = new RegExp(`\\b${escapeRegExp(variableName)}\\.(global|module)((?:\\.[A-Za-z_$][\\w$]*)+)`, 'gu');
+
+  return code.replace(memberRe, (match, scope: 'global' | 'module', pathExpression: string) => {
+    const value = getValueByPath(payload[scope], pathExpression.slice(1).split('.'));
+
+    return value === undefined ? match : JSON.stringify(value);
+  });
+}
+
+function getValueByPath(value: LocaleDictionary, path: string[]): unknown {
+  let current: unknown = value;
+
+  for (const key of path) {
+    if (current == null || typeof current !== 'object' || Array.isArray(current) || !(key in current)) {
+      return undefined;
+    }
+
+    current = (current as Record<string, unknown>)[key];
+  }
+
+  return current;
 }
 
 function isMutableOutputChunk(value: unknown): value is MutableOutputChunk {
@@ -241,9 +303,9 @@ function replaceEntryScript(html: string, localeFiles: Record<string, string>, p
   );
   const replacement = [
     '<script type="module">',
-    `const __vueI18nLocale = new URL(window.location.href).searchParams.get("locale") || ${JSON.stringify(primaryLocale)};`,
-    `const __vueI18nEntries = ${JSON.stringify(toAbsoluteLocaleFiles(localeFiles))};`,
-    `import(__vueI18nEntries[__vueI18nLocale] || __vueI18nEntries[${JSON.stringify(primaryLocale)}]);`,
+    `const __vueInternationalizationLocale = new URL(window.location.href).searchParams.get("locale") || ${JSON.stringify(primaryLocale)};`,
+    `const __vueInternationalizationEntries = ${JSON.stringify(toAbsoluteLocaleFiles(localeFiles))};`,
+    `import(__vueInternationalizationEntries[__vueInternationalizationLocale] || __vueInternationalizationEntries[${JSON.stringify(primaryLocale)}]);`,
     '</script>'
   ].join('');
 

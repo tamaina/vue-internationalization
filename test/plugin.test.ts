@@ -88,6 +88,60 @@ describe('virtual module generation', () => {
     expect(bundle['assets/App-abc.en-US.js']?.code).toContain('"title":"foo"');
   });
 
+  it('replaces script member access from inline locale bindings', () => {
+    const marker = internals.injectInlineLocaleBinding('<script setup></script>', '/src/App.vue');
+    const binding = marker.match(/const \$locale = (.*);/)?.[1];
+    const code = [
+      `const l = ${binding};`,
+      'const title = l.module.title;',
+      'const globalMessage = l.global.fuga;',
+      'const missing = l.module.missing;'
+    ].join('');
+
+    const replaced = internals.replaceInlineLocaleMemberAccess(
+      code,
+      'en-US',
+      {
+        '/src/App.vue': {
+          'en-US': {
+            title: 'foo'
+          }
+        }
+      },
+      {
+        'en-US': {
+          fuga: 'bar'
+        }
+      }
+    );
+
+    expect(replaced).toContain('const title = "foo";');
+    expect(replaced).toContain('const globalMessage = "bar";');
+    expect(replaced).toContain('const missing = l.module.missing;');
+  });
+
+  it('keeps object replacement as a fallback for template scope', () => {
+    const marker = internals.injectInlineLocaleBinding('<script setup></script>', '/src/App.vue');
+    const binding = marker.match(/const \$locale = (.*);/)?.[1];
+    const code = `const l = ${binding};`;
+
+    const replaced = internals.replaceInlineLocaleMemberAccess(
+      code,
+      'ja-JP',
+      {
+        '/src/App.vue': {
+          'ja-JP': {
+            title: 'ほげ'
+          }
+        }
+      },
+      {}
+    );
+
+    expect(replaced).toContain('const l = __VUE_INTERNATIONALIZATION_INLINE_LOCALE__');
+  });
+
+
   it('rewrites imports between localized chunks', () => {
     const appMarker = internals.injectInlineLocaleBinding('<script setup></script>', '/src/App.vue');
     const childMarker = internals.injectInlineLocaleBinding('<script setup></script>', '/src/AsyncPanel.vue');
@@ -185,7 +239,7 @@ describe('virtual module generation', () => {
       }
     );
 
-    expect(html).toContain('import(__vueI18nEntries[__vueI18nLocale]');
+    expect(html).toContain('import(__vueInternationalizationEntries[__vueInternationalizationLocale]');
   });
 
   it('augments vite manifest with localized chunks', () => {
@@ -216,7 +270,7 @@ describe('virtual module generation', () => {
 
     expect(parsed['index.html'].file).toBe('assets/App-abc.ja-JP.js');
     expect(parsed['index.html'].locale).toBe('ja-JP');
-    expect(parsed['index.html'].i18n.locales['en-US']).toBe('assets/App-abc.en-US.js');
+    expect(parsed['index.html'].internationalization.locales['en-US']).toBe('assets/App-abc.en-US.js');
     expect(parsed['index.html?locale=en-US'].file).toBe('assets/App-abc.en-US.js');
     expect(parsed['index.html?locale=en-US'].locale).toBe('en-US');
   });

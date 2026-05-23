@@ -7,14 +7,14 @@ export type {
   VueInternationalizationOptions
 } from './plugin.js';
 export {
-  createI18n,
-  setActiveI18n,
-  useI18n,
+  createInternationalization,
+  setActiveInternationalization,
+  useInternationalization,
   useLocale
 } from './runtime.js';
 export type {
-  I18nInstance,
-  I18nRuntimeOptions,
+  InternationalizationInstance,
+  InternationalizationRuntimeOptions,
   LocaleBundle,
   LocaleLoader,
   RuntimeLocaleDictionary

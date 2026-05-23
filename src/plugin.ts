@@ -6,6 +6,7 @@ import {
   injectInlineLocaleBinding,
   inlineLocaleChunks,
   inlineLocaleHtml,
+  replaceInlineLocaleMemberAccess,
   replaceInlineLocaleHtml,
   type InlineChunkManifest
 } from './inline.js';
@@ -200,6 +201,7 @@ export const internals = {
   injectInlineLocaleBinding,
   inlineLocaleChunks,
   inlineLocaleHtml,
+  replaceInlineLocaleMemberAccess,
   replaceInlineLocaleHtml,
   stripLocaleBlocks
 };
@@ -229,13 +231,13 @@ function generateRuntimeModule(primaryLocale: string, locales: string[]): string
     .join(',\n  ');
 
   return [
-    'import { createI18n as __createI18n, setActiveI18n, useI18n, useLocale } from "vue-internationalization/runtime";',
+    'import { createInternationalization as __createInternationalization, setActiveInternationalization, useInternationalization, useLocale } from "vue-internationalization/runtime";',
     `export const primaryLocale = ${JSON.stringify(primaryLocale)};`,
     `export const locales = ${JSON.stringify(locales)};`,
     `export const localeLoaders = {\n  ${loaderEntries}\n};`,
-    'export { setActiveI18n, useI18n, useLocale };',
-    'export function createI18n(options = {}) {',
-    '  return __createI18n({',
+    'export { setActiveInternationalization, useInternationalization, useLocale };',
+    'export function createInternationalization(options = {}) {',
+    '  return __createInternationalization({',
     '    primaryLocale,',
     '    initialLocale: options.initialLocale ?? primaryLocale,',
     '    loaders: localeLoaders,',
@@ -251,11 +253,11 @@ function generateInlineRuntimeModule(primaryLocale: string, locales: string[]): 
     .join(',\n  ');
 
   return [
-    'import { createI18n as __createI18n, setActiveI18n, useI18n, useLocale } from "vue-internationalization/runtime";',
+    'import { createInternationalization as __createInternationalization, setActiveInternationalization, useInternationalization, useLocale } from "vue-internationalization/runtime";',
     `export const primaryLocale = ${JSON.stringify(primaryLocale)};`,
     `export const locales = ${JSON.stringify(locales)};`,
     `export const localeLoaders = {\n  ${loaderEntries}\n};`,
-    'export { setActiveI18n, useI18n, useLocale };',
+    'export { setActiveInternationalization, useInternationalization, useLocale };',
     'function __getInlineLocale() {',
     '  if (typeof window === "undefined") return undefined;',
     '  const locale = new URL(window.location.href).searchParams.get("locale");',
@@ -268,8 +270,8 @@ function generateInlineRuntimeModule(primaryLocale: string, locales: string[]): 
     '  else url.searchParams.set("locale", locale);',
     '  window.location.assign(url);',
     '}',
-    'export function createI18n(options = {}) {',
-    '  return __createI18n({',
+    'export function createInternationalization(options = {}) {',
+    '  return __createInternationalization({',
     '    primaryLocale,',
     '    initialLocale: __getInlineLocale() ?? options.initialLocale ?? primaryLocale,',
     '    loaders: localeLoaders,',
