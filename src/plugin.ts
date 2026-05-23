@@ -22,7 +22,7 @@ import {
 	transformVueSfc,
 	validateLocaleDictionary,
 } from './parse.js';
-import { readTextFile, scanVueFiles } from './files.js';
+import { readTextFile, scanVueFiles, type ScanVueFilesOptions } from './files.js';
 import { loadLocaleEnvDictionary, type LocaleEnvSource, type LocaleEnvSources } from './localeEnv.js';
 import type { Plugin } from 'vite';
 import type { LocaleDictionary } from './types.js';
@@ -36,6 +36,7 @@ export type VueInternationalizationOptions = {
 	primaryLocale: string;
 	global?: LocaleEnvSources;
 	buildStrategy?: 'virtual' | 'inline-chunks';
+	scan?: ScanVueFilesOptions;
 };
 type ResolvedVueInternationalizationOptions = VueInternationalizationOptions;
 type TsconfigVueCompilerPlugin = {
@@ -43,6 +44,7 @@ type TsconfigVueCompilerPlugin = {
 	primaryLocale?: unknown;
 	global?: unknown;
 	buildStrategy?: unknown;
+	scan?: unknown;
 };
 
 type ModuleMessages = Partial<Record<string, LocaleMessages>>;
@@ -106,7 +108,7 @@ export function vueInternationalization(options?: Partial<VueInternationalizatio
 	function scan(): void {
 		loadGlobalMessages();
 
-		for (const file of scanVueFiles(root)) {
+		for (const file of scanVueFiles(root, getResolvedOptions(resolvedOptions).scan)) {
 			collectVueFile(file, readTextFile(file));
 		}
 
@@ -254,6 +256,7 @@ function resolveOptions(root: string, options: Partial<VueInternationalizationOp
 		primaryLocale: merged.primaryLocale,
 		global: merged.global,
 		buildStrategy: merged.buildStrategy,
+		scan: merged.scan,
 	};
 }
 
@@ -301,6 +304,30 @@ function normalizeTsconfigPluginOptions(
 		result.buildStrategy = plugin.buildStrategy;
 	}
 
+	if (plugin.scan !== undefined) {
+		result.scan = normalizeScanOption(plugin.scan, sourceFile);
+	}
+
+	return result;
+}
+
+function normalizeScanOption(value: unknown, sourceFile: string): ScanVueFilesOptions {
+	const scan = getObject(value);
+
+	if (!scan) {
+		throw new Error(`${sourceFile}: vue-internationalization scan option must be an object.`);
+	}
+
+	const result: ScanVueFilesOptions = {};
+
+	if (scan.include !== undefined) {
+		result.include = normalizeStringOrStringArray(scan.include, `${sourceFile}: scan.include`);
+	}
+
+	if (scan.exclude !== undefined) {
+		result.exclude = normalizeStringOrStringArray(scan.exclude, `${sourceFile}: scan.exclude`);
+	}
+
 	return result;
 }
 
@@ -337,6 +364,14 @@ function normalizeLocaleDictionary(value: unknown, sourceLabel: string): LocaleD
 
 function isStringArray(value: unknown): value is string[] {
 	return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+
+function normalizeStringOrStringArray(value: unknown, sourceLabel: string): string | string[] {
+	if (typeof value === 'string' || isStringArray(value)) {
+		return value;
+	}
+
+	throw new Error(`${sourceLabel} must be a string or string array.`);
 }
 
 function parseJsonFile(file: string): unknown {

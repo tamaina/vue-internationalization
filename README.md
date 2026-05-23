@@ -72,6 +72,11 @@ export default defineConfig({
         "name": "vue-internationalization/volar",
         "primaryLocale": "ja-JP",
         "buildStrategy": "inline-chunks",
+        "scan": {
+          "include": "src/**/*.vue",
+          "exclude": ["src/legacy/**"]
+        },
+        "localizerDocumentation": false,
         "global": {
           "ja-JP": "./src/locales/ja-JP/**/*.yaml",
           "en-US": [
@@ -87,6 +92,8 @@ export default defineConfig({
 
 `vueInternationalization()` に options を渡さない場合、Vite plugin は `tsconfig.json` の `vueCompilerOptions.plugins` から `vue-internationalization/volar` 設定を読みます。VS Code / Vue Language Tools も同じ設定を使うため、`primaryLocale` や `global` を二重管理する必要はありません。
 `global` の各 locale には object、ファイルパス、glob、またはパス配列を指定できます。複数ファイルに同じ key path がある場合は warning を出し、後から読み込まれたファイルの値で上書きします。
+`scan.include` / `scan.exclude` は Vite plugin が起動時に収集する Vue ファイルを絞り込むための glob です。大きいリポジトリでは `src/**/*.vue` のように対象を限定してください。
+`localizerDocumentation: false` を指定すると、Volar が `$l` の hover 用 JSDoc を生成しません。巨大な辞書でエディターの応答が重い場合に有効です。
 
 ```ts
 // main.ts
@@ -135,6 +142,7 @@ pnpm --dir examples/motivation-1 dev
 production build では `ja-JP` / `en-US` が別 chunk として出力されます。
 `buildStrategy: 'inline-chunks'` の場合、primary locale は通常の chunk に埋め込まれ、その他の locale は `*.en-US.js` のような別ファイルとして出力されます。
 このモードでは HTML loader が `locale` query を見て locale chunk を選択します。
+`inline-chunks` は localizable chunk を locale ごとに複製するため、locale 数に比例して出力ファイル数と合計配信サイズが増えます。多数の locale を扱う場合は、通常の `virtual` strategy の chunk splitting を優先してください。
 
 ```sh
 pnpm --dir examples/motivation-1 build

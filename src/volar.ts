@@ -4,6 +4,8 @@ import { resolve } from 'node:path';
 import {
 	createLocaleConstRefType,
 	createLocaleConstScopeType,
+	createLocalizerRefType,
+	createLocalizerScopeType,
 	createLocalizerDocumentationRefType,
 	createLocalizerDocumentationScopeType,
 } from './localeTypes.js';
@@ -16,9 +18,12 @@ import type { LocaleDictionary } from './types.js';
 export type VueInternationalizationVolarPluginConfig = {
 	primaryLocale?: string;
 	global?: LocaleEnvSources;
+	localizerDocumentation?: boolean;
 };
 
 const plugin: VueLanguagePlugin<VueInternationalizationVolarPluginConfig> = ({ config }) => {
+	const cache = createVolarCache();
+
 	return {
 		version: 2.2,
 		name: 'vue-internationalization',
@@ -29,24 +34,10 @@ const plugin: VueLanguagePlugin<VueInternationalizationVolarPluginConfig> = ({ c
 			}
 
 			const primaryLocale = config.primaryLocale ?? getFirstLocale(ir.customBlocks);
-			const moduleDictionary = getLocaleDictionary(ir.customBlocks, primaryLocale);
-			const globalDictionary = getGlobalDictionary(config, primaryLocale, fileName);
-			const localeRefType = createLocaleConstRefType({
-				global: globalDictionary,
-				module: moduleDictionary,
-			});
-			const localeScopeType = createLocaleConstScopeType({
-				global: globalDictionary,
-				module: moduleDictionary,
-			});
-			const localizerRefType = createLocalizerDocumentationRefType({
-				global: globalDictionary,
-				module: moduleDictionary,
-			});
-			const localizerScopeType = createLocalizerDocumentationScopeType({
-				global: globalDictionary,
-				module: moduleDictionary,
-			});
+			const moduleDictionary = getLocaleDictionary(cache, ir.customBlocks, primaryLocale);
+			const globalDictionary = getGlobalDictionary(cache, config, primaryLocale, fileName);
+			const generatedTypes = getGeneratedTypes(cache, config, globalDictionary, moduleDictionary);
+			const { localeRefType, localeScopeType, localizerRefType, localizerScopeType } = generatedTypes;
 			const declaration = `declare const $locale: ${localeRefType};\ndeclare const $l: ${localizerRefType};\n`;
 			const setupExposure = '$locale: typeof $locale;\n$l: typeof $l;\n';
 
@@ -72,6 +63,27 @@ const plugin: VueLanguagePlugin<VueInternationalizationVolarPluginConfig> = ({ c
 };
 
 export default plugin;
+
+type GeneratedTypes = {
+	localeRefType: string;
+	localeScopeType: string;
+	localizerRefType: string;
+	localizerScopeType: string;
+};
+
+type VolarCache = {
+	globalDictionaries: Map<string, LocaleDictionary | undefined>;
+	moduleDictionaries: Map<string, LocaleDictionary>;
+	generatedTypes: Map<string, GeneratedTypes>;
+};
+
+function createVolarCache(): VolarCache {
+	return {
+		globalDictionaries: new Map(),
+		moduleDictionaries: new Map(),
+		generatedTypes: new Map(),
+	};
+}
 
 function hasLocaleBlocks(customBlocks: readonly { type: string }[]): boolean {
 	return customBlocks.some((block) => block.type === 'locale');
@@ -294,7 +306,58 @@ function getFirstLocale(customBlocks: readonly { type: string; attrs: Record<str
 	}
 }
 
+function getGeneratedTypes(
+	cache: VolarCache,
+	config: VueInternationalizationVolarPluginConfig,
+	globalDictionary: LocaleDictionary | undefined,
+	moduleDictionary: LocaleDictionary,
+): GeneratedTypes {
+	const key = [
+		config.localizerDocumentation === false ? 'compact' : 'documented',
+		stableStringify(globalDictionary ?? {}),
+		stableStringify(moduleDictionary),
+	].join('\n');
+	const cached = cache.generatedTypes.get(key);
+
+	if (cached) {
+		return cached;
+	}
+
+	const types = {
+		localeRefType: createLocaleConstRefType({
+			global: globalDictionary,
+			module: moduleDictionary,
+		}),
+		localeScopeType: createLocaleConstScopeType({
+			global: globalDictionary,
+			module: moduleDictionary,
+		}),
+		localizerRefType: config.localizerDocumentation === false
+			? createLocalizerRefType({
+				global: globalDictionary,
+				module: moduleDictionary,
+			})
+			: createLocalizerDocumentationRefType({
+				global: globalDictionary,
+				module: moduleDictionary,
+			}),
+		localizerScopeType: config.localizerDocumentation === false
+			? createLocalizerScopeType({
+				global: globalDictionary,
+				module: moduleDictionary,
+			})
+			: createLocalizerDocumentationScopeType({
+				global: globalDictionary,
+				module: moduleDictionary,
+			}),
+	};
+
+	cache.generatedTypes.set(key, types);
+	return types;
+}
+
 function getLocaleDictionary(
+	cache: VolarCache,
 	customBlocks: readonly { type: string; attrs: Record<string, string | true>; lang?: string; content: string }[],
 	primaryLocale: string | undefined,
 ): LocaleDictionary {
@@ -305,11 +368,25 @@ function getLocaleDictionary(
 	}
 
 	const block = localeBlocks.find((item) => item.attrs.locale === primaryLocale) ?? localeBlocks[0];
+	const key = [
+		String(primaryLocale ?? ''),
+		String(block.attrs.locale),
+		block.lang ?? 'yaml',
+		block.content,
+	].join('\n');
+	const cached = cache.moduleDictionaries.get(key);
 
-	return parseLocaleDictionary(block.content, block.lang ?? 'yaml', `<locale locale="${String(block.attrs.locale)}">`);
+	if (cached) {
+		return cached;
+	}
+
+	const dictionary = parseLocaleDictionary(block.content, block.lang ?? 'yaml', `<locale locale="${String(block.attrs.locale)}">`);
+	cache.moduleDictionaries.set(key, dictionary);
+	return dictionary;
 }
 
 function getGlobalDictionary(
+	cache: VolarCache,
 	config: VueInternationalizationVolarPluginConfig,
 	primaryLocale: string | undefined,
 	fileName: string,
@@ -327,10 +404,29 @@ function getGlobalDictionary(
 	}
 
 	if (typeof value !== 'string' && !Array.isArray(value)) {
-		return validateLocaleDictionary(value, `global.${primaryLocale}`);
+		const key = `object:${primaryLocale}:${stableStringify(value)}`;
+		const cached = cache.globalDictionaries.get(key);
+
+		if (cached) {
+			return cached;
+		}
+
+		const dictionary = validateLocaleDictionary(value, `global.${primaryLocale}`);
+		cache.globalDictionaries.set(key, dictionary);
+		return dictionary;
 	}
 
-	return loadLocaleEnvDictionary(findConfigDir(fileName), primaryLocale, value);
+	const configDir = findConfigDir(fileName);
+	const key = `files:${configDir}:${primaryLocale}:${stableStringify(value)}`;
+	const cached = cache.globalDictionaries.get(key);
+
+	if (cached) {
+		return cached;
+	}
+
+	const dictionary = loadLocaleEnvDictionary(configDir, primaryLocale, value);
+	cache.globalDictionaries.set(key, dictionary);
+	return dictionary;
 }
 
 function findConfigDir(fileName: string): string {
@@ -345,4 +441,19 @@ function findConfigDir(fileName: string): string {
 	}
 
 	return process.cwd();
+}
+
+function stableStringify(value: unknown): string {
+	if (Array.isArray(value)) {
+		return `[${value.map((item) => stableStringify(item)).join(',')}]`;
+	}
+
+	if (value != null && typeof value === 'object') {
+		return `{${Object.entries(value)
+			.sort(([left], [right]) => left.localeCompare(right))
+			.map(([key, child]) => `${JSON.stringify(key)}:${stableStringify(child)}`)
+			.join(',')}}`;
+	}
+
+	return JSON.stringify(value);
 }

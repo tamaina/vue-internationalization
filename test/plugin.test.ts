@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { scanVueFiles } from '../src/files.js';
 import { internals } from '../src/plugin.js';
 
 describe('virtual module generation', () => {
@@ -14,6 +15,10 @@ describe('virtual module generation', () => {
 						name: 'vue-internationalization/volar',
 						primaryLocale: 'ja-JP',
 						buildStrategy: 'inline-chunks',
+						scan: {
+							include: 'src/**/*.vue',
+							exclude: ['src/legacy/**'],
+						},
 						global: {
 							'ja-JP': './src/locales/ja-JP.yaml',
 						},
@@ -25,6 +30,10 @@ describe('virtual module generation', () => {
 		expect(internals.resolveOptions(root, {})).toEqual({
 			primaryLocale: 'ja-JP',
 			buildStrategy: 'inline-chunks',
+			scan: {
+				include: 'src/**/*.vue',
+				exclude: ['src/legacy/**'],
+			},
 			global: {
 				'ja-JP': './src/locales/ja-JP.yaml',
 			},
@@ -72,6 +81,25 @@ describe('virtual module generation', () => {
 			buildStrategy: undefined,
 			global: undefined,
 		});
+	});
+
+	it('scans Vue files with include and exclude patterns', () => {
+		const root = mkdtempSync(join(tmpdir(), 'vue-internationalization-'));
+		mkdirSync(join(root, 'src/features'), { recursive: true });
+		mkdirSync(join(root, 'src/legacy'), { recursive: true });
+		mkdirSync(join(root, 'docs'), { recursive: true });
+		writeFileSync(join(root, 'src/App.vue'), '<template />');
+		writeFileSync(join(root, 'src/features/Panel.vue'), '<template />');
+		writeFileSync(join(root, 'src/legacy/Old.vue'), '<template />');
+		writeFileSync(join(root, 'docs/Example.vue'), '<template />');
+
+		expect(scanVueFiles(root, {
+			include: 'src/**/*.vue',
+			exclude: ['src/legacy/**'],
+		}).map((file) => file.replace(root, ''))).toEqual([
+			'/src/App.vue',
+			'/src/features/Panel.vue',
+		]);
 	});
 
 	it('loads env dictionaries from globbed yaml files with duplicate warnings', () => {

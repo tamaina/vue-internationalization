@@ -55,6 +55,8 @@ const EMPTY_DICTIONARY: RuntimeLocaleDictionary = {};
 const TEMPLATE_CACHE_LIMIT = 500;
 const TEMPLATE_TOKEN_RE = /\{([A-Za-z_$][\w$]*)\}/g;
 const TEMPLATE_TOKEN_CACHE = new Map<string, TemplateToken[]>();
+const DICTIONARY_PROXY_CACHE = new WeakMap<RuntimeLocaleDictionary, WeakMap<RuntimeLocaleDictionary, Map<string, RuntimeLocaleDictionary>>>();
+const LOCALIZER_PROXY_CACHE = new WeakMap<RuntimeLocaleDictionary, Map<string, LocaleLocalizerDictionary>>();
 const STATES = new WeakMap<InternationalizationInstance, InternationalizationState>();
 let activeInternationalization: InternationalizationInstance | undefined;
 
@@ -184,7 +186,13 @@ function createDictionaryProxy(
 	fallback: RuntimeLocaleDictionary,
 	path: string[],
 ): RuntimeLocaleDictionary {
-	return new Proxy(current, {
+	const cached = getDictionaryProxy(current, fallback, path);
+
+	if (cached) {
+		return cached;
+	}
+
+	const proxy = new Proxy(current, {
 		get(target, property) {
 			if (typeof property !== 'string') {
 				return Reflect.get(target, property);
@@ -201,10 +209,21 @@ function createDictionaryProxy(
 			return value ?? fallbackValue ?? `$locale.${nextPath.join('.')}`;
 		},
 	}) as RuntimeLocaleDictionary;
+
+	setDictionaryProxy(current, fallback, path, proxy);
+	return proxy;
 }
 
 function createLocalizerDictionary(dictionary: RuntimeLocaleDictionary, path: string[]): LocaleLocalizerDictionary {
-	return new Proxy({}, {
+	const pathKey = path.join('.');
+	const dictionaryCache = getOrCreateLocalizerCache(dictionary);
+	const cached = dictionaryCache.get(pathKey);
+
+	if (cached) {
+		return cached;
+	}
+
+	const proxy = new Proxy({}, {
 		get(_target, property) {
 			if (typeof property !== 'string') {
 				return undefined;
@@ -223,6 +242,51 @@ function createLocalizerDictionary(dictionary: RuntimeLocaleDictionary, path: st
 			);
 		},
 	}) as LocaleLocalizerDictionary;
+
+	dictionaryCache.set(pathKey, proxy);
+	return proxy;
+}
+
+function getDictionaryProxy(
+	current: RuntimeLocaleDictionary,
+	fallback: RuntimeLocaleDictionary,
+	path: string[],
+): RuntimeLocaleDictionary | undefined {
+	return DICTIONARY_PROXY_CACHE.get(current)?.get(fallback)?.get(path.join('.'));
+}
+
+function setDictionaryProxy(
+	current: RuntimeLocaleDictionary,
+	fallback: RuntimeLocaleDictionary,
+	path: string[],
+	proxy: RuntimeLocaleDictionary,
+): void {
+	let fallbackCache = DICTIONARY_PROXY_CACHE.get(current);
+
+	if (!fallbackCache) {
+		fallbackCache = new WeakMap();
+		DICTIONARY_PROXY_CACHE.set(current, fallbackCache);
+	}
+
+	let pathCache = fallbackCache.get(fallback);
+
+	if (!pathCache) {
+		pathCache = new Map();
+		fallbackCache.set(fallback, pathCache);
+	}
+
+	pathCache.set(path.join('.'), proxy);
+}
+
+function getOrCreateLocalizerCache(dictionary: RuntimeLocaleDictionary): Map<string, LocaleLocalizerDictionary> {
+	let cache = LOCALIZER_PROXY_CACHE.get(dictionary);
+
+	if (!cache) {
+		cache = new Map();
+		LOCALIZER_PROXY_CACHE.set(dictionary, cache);
+	}
+
+	return cache;
 }
 
 function getTemplateTokens(template: string): TemplateToken[] {

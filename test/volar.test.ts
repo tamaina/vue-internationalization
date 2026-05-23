@@ -81,6 +81,43 @@ describe('volar plugin', () => {
 		expect(scriptCode).toContain('// @ts-expect-error: ts-plugin(2339)\n( __VLS_ctx.$locale.sfc.noTranslation );');
 		expect(scriptSetupRaw?.trim()).toBe('const title = $locale.value.sfc.hoge;\nconst count = $l.value.sfc.count({ n: 1 });');
 	});
+
+	it('can skip verbose localizer documentation in generated editor types', () => {
+		const vueCompilerOptions = getDefaultCompilerOptions();
+		vueCompilerOptions.plugins = [
+			withConfig(vueInternationalizationVolar, {
+				__moduleConfig: {
+					name: 'vue-internationalization/volar',
+					primaryLocale: 'ja-JP',
+					localizerDocumentation: false,
+				},
+			}),
+		];
+		const plugin = createVueLanguagePlugin(ts, {}, vueCompilerOptions, String);
+		const fileName = resolve('examples/motivation-1/src/Compact.vue');
+		const source = [
+			'<template>{{ $l.sfc.count({ n: 1 }) }}</template>',
+			'<script setup lang="ts">',
+			'const count = $l.value.sfc.count({ n: 1 });',
+			'</script>',
+			'<locale locale="ja-JP" lang="yaml">',
+			'count: "{n} 個"',
+			'</locale>',
+		].join('\n');
+		const root = plugin.createVirtualCode?.(fileName, 'vue', ts.ScriptSnapshot.fromString(source), {} as never);
+
+		if (!root) {
+			throw new Error('Expected Vue virtual code to be created.');
+		}
+
+		const scriptCode = [...forEachEmbeddedCode(root)]
+			.find((code) => code.id === 'script_ts')
+			?.snapshot.getText(0, Number.MAX_SAFE_INTEGER);
+
+		expect(scriptCode).toContain('$l: { env: import("vue-internationalization/runtime").LocaleLocalizerDictionary; sfc: { count:');
+		expect(scriptCode).not.toContain('Primary locale text:');
+		expect(scriptCode).not.toContain('@example');
+	});
 });
 
 function withConfig(
