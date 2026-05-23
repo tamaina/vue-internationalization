@@ -11,7 +11,7 @@ import {
 	createLocalizerDocumentationScopeType,
 } from './localeTypes.js';
 import {
-	loadLocaleEnvDictionaryWithDiagnostics,
+	loadLocaleEnvDictionaryForDiagnostics,
 	type LocaleEnvSources,
 } from './localeEnv.js';
 import {
@@ -43,17 +43,14 @@ const plugin: VueLanguagePlugin<VueInternationalizationVolarPluginConfig> = ({ c
 
 			const primaryLocale = config.primaryLocale ?? getFirstLocale(ir.customBlocks);
 			const moduleDictionary = getLocaleDictionary(cache, ir.customBlocks, primaryLocale);
-			const globalResult = getGlobalDictionaryResult(cache, config, primaryLocale, fileName);
-			const generatedTypes = getGeneratedTypes(cache, config, globalResult.dictionary, moduleDictionary);
+			const globalDictionary = getGlobalDictionary(cache, config, primaryLocale, fileName);
+			const generatedTypes = getGeneratedTypes(cache, config, globalDictionary, moduleDictionary);
 			const { localeRefType, localeScopeType, localizerRefType, localizerScopeType } = generatedTypes;
 			const declaration = `declare const $locale: ${localeRefType};\ndeclare const $l: ${localizerRefType};\n`;
 			const setupExposure = '$locale: typeof $locale;\n$l: typeof $l;\n';
 
 			embeddedFile.content.unshift(declaration);
-			pushLocaleDiagnostics(embeddedFile.content, [
-				...globalResult.diagnostics,
-				...getLocaleDiagnostics(cache, ir.customBlocks),
-			]);
+			pushLocaleDiagnostics(embeddedFile.content, getLocaleDiagnostics(cache, ir.customBlocks));
 			insertAfter(
 				embeddedFile.content,
 				'type __VLS_SetupExposed = import(\'vue\').ShallowUnwrapRef<{\n',
@@ -84,7 +81,7 @@ type GeneratedTypes = {
 };
 
 type VolarCache = {
-	globalDictionaries: Map<string, GlobalDictionaryResult>;
+	globalDictionaries: Map<string, LocaleDictionary | undefined>;
 	moduleDictionaries: Map<string, LocaleDictionary>;
 	moduleDiagnostics: Map<string, LocaleBlockDiagnostic[]>;
 	generatedTypes: Map<string, GeneratedTypes>;
@@ -100,11 +97,6 @@ type LocaleCustomBlock = {
 
 type LocaleBlockDiagnostic = LocaleDictionaryDiagnostic & {
 	source: string;
-};
-
-type GlobalDictionaryResult = {
-	dictionary: LocaleDictionary | undefined;
-	diagnostics: LocaleBlockDiagnostic[];
 };
 
 function createVolarCache(): VolarCache {
@@ -489,22 +481,22 @@ function pushLocaleDiagnostics(content: Code[], diagnostics: LocaleBlockDiagnost
 	});
 }
 
-function getGlobalDictionaryResult(
+function getGlobalDictionary(
 	cache: VolarCache,
 	config: VueInternationalizationVolarPluginConfig,
 	primaryLocale: string | undefined,
 	fileName: string,
-): GlobalDictionaryResult {
+): LocaleDictionary | undefined {
 	const global = config.global;
 
 	if (!global || !primaryLocale) {
-		return createGlobalDictionaryResult(undefined);
+		return undefined;
 	}
 
 	const value = global[primaryLocale];
 
 	if (!value) {
-		return createGlobalDictionaryResult(undefined);
+		return undefined;
 	}
 
 	if (typeof value !== 'string' && !Array.isArray(value)) {
@@ -520,30 +512,12 @@ function getGlobalDictionaryResult(
 			'json',
 			`global.${primaryLocale}`,
 		);
-		const globalResult = createGlobalDictionaryResult(result.dictionary, result.diagnostics, fileName);
-		cache.globalDictionaries.set(key, globalResult);
-		return globalResult;
+		cache.globalDictionaries.set(key, result.dictionary);
+		return result.dictionary;
 	}
 
 	const configDir = findConfigDir(fileName);
-	const result = loadLocaleEnvDictionaryWithDiagnostics(configDir, primaryLocale, value);
-	return createGlobalDictionaryResult(result.dictionary, result.diagnostics, fileName);
-}
-
-function createGlobalDictionaryResult(
-	dictionary: LocaleDictionary | undefined,
-	diagnostics: LocaleDictionaryDiagnostic[] = [],
-	source = '',
-): GlobalDictionaryResult {
-	return {
-		dictionary,
-		diagnostics: diagnostics.map((diagnostic) => ({
-			...diagnostic,
-			start: 0,
-			end: 1,
-			source,
-		})),
-	};
+	return loadLocaleEnvDictionaryForDiagnostics(configDir, primaryLocale, value);
 }
 
 function findConfigDir(fileName: string): string {
