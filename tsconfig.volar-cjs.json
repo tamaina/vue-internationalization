@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": false,
+    "declarationMap": false,
+    "esModuleInterop": true,
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "outDir": ".volar-cjs-build",
+    "rootDir": "src",
+    "sourceMap": false,
+    "verbatimModuleSyntax": false
+  },
+  "include": [
+    "src/volar.ts",
+    "src/localeTypes.ts",
+    "src/parse.ts",
+    "src/types.ts"
+  ]
+}

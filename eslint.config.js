@@ -6,7 +6,7 @@ export default [
 			'dist/**',
 			'examples/*/dist/**',
 			'node_modules/**',
-			'src/volar.cjs',
+			'.volar-cjs-build/**',
 		],
 	},
 	...misskey.configs.recommended,

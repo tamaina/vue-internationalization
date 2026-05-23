@@ -1,7 +1,12 @@
 import { isAbsolute, resolve } from 'node:path';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { createLocaleRefType, createLocaleScopeType, createLocalizerRefType, createLocalizerScopeType } from './localeTypes.js';
+import {
+	createLocaleConstRefType,
+	createLocaleConstScopeType,
+	createLocalizerDocumentationRefType,
+	createLocalizerDocumentationScopeType,
+} from './localeTypes.js';
 import { parseLocaleDictionary } from './parse.js';
 import type { VueLanguagePlugin } from '@vue/language-core';
 import type { Code } from '@vue/language-core';
@@ -28,19 +33,19 @@ const plugin: VueLanguagePlugin<VueInternationalizationVolarPluginConfig> = ({ c
 			const primaryLocale = config.primaryLocale ?? getFirstLocale(ir.customBlocks);
 			const moduleDictionary = getLocaleDictionary(ir.customBlocks, primaryLocale);
 			const globalDictionary = getGlobalDictionary(config, primaryLocale, fileName);
-			const localeRefType = createLocaleRefType({
+			const localeRefType = createLocaleConstRefType({
 				global: globalDictionary,
 				module: moduleDictionary,
 			});
-			const localeScopeType = createLocaleScopeType({
+			const localeScopeType = createLocaleConstScopeType({
 				global: globalDictionary,
 				module: moduleDictionary,
 			});
-			const localizerRefType = createLocalizerRefType({
+			const localizerRefType = createLocalizerDocumentationRefType({
 				global: globalDictionary,
 				module: moduleDictionary,
 			});
-			const localizerScopeType = createLocalizerScopeType({
+			const localizerScopeType = createLocalizerDocumentationScopeType({
 				global: globalDictionary,
 				module: moduleDictionary,
 			});

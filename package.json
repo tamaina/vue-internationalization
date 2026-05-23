@@ -18,16 +18,15 @@
     },
     "./volar": {
       "types": "./dist/volar.d.ts",
-      "require": "./src/volar.cjs",
+      "require": "./dist/volar.cjs",
       "import": "./dist/volar.js"
     }
   },
   "files": [
-    "dist",
-    "src/volar.cjs"
+    "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && cp src/virtual.d.ts dist/virtual.d.ts && cp src/volar.cjs dist/volar.cjs",
+    "build": "tsc -p tsconfig.build.json && cp src/virtual.d.ts dist/virtual.d.ts && tsc -p tsconfig.volar-cjs.json && node scripts/build-volar-cjs.mjs",
     "lint": "eslint .",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"

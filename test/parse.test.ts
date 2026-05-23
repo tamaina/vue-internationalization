@@ -25,7 +25,7 @@ describe('locale SFC parsing', () => {
 		const output = transformVueSfc(input, '/repo/src/App.vue');
 
 		expect(output).toContain('const $locale = __useLocale<{}, { hoge: string; }>(import.meta.url);');
-		expect(output).toContain('const $l = __useLocalizer(import.meta.url) as Readonly<import("vue").ComputedRef<{ env: import("vue-internationalization/runtime").LocaleLocalizerDictionary; sfc: { hoge: import("vue-internationalization/runtime").LocaleTemplateFunction; }; }>>;');
+		expect(output).toContain('const $l = __useLocalizer(import.meta.url) as Readonly<import("vue").ComputedRef<{ env: import("vue-internationalization/runtime").LocaleLocalizerDictionary; sfc: { hoge: () => string; }; }>>;');
 		expect(output).not.toContain('<locale');
 		expect(output).toContain('const x = 1;');
 	});
@@ -54,7 +54,24 @@ describe('locale SFC parsing', () => {
 		});
 
 		expect(output).toContain('const $locale = __useLocale<{ fuga: string; }, { hoge: string; nested: { count: number; }; }>');
-		expect(output).toContain('const $l = __useLocalizer(import.meta.url) as Readonly<import("vue").ComputedRef<{ env: { fuga: import("vue-internationalization/runtime").LocaleTemplateFunction; }; sfc: { hoge: import("vue-internationalization/runtime").LocaleTemplateFunction; nested: { count: import("vue-internationalization/runtime").LocaleTemplateFunction; }; }; }>>;');
+		expect(output).toContain('const $l = __useLocalizer(import.meta.url) as Readonly<import("vue").ComputedRef<{ env: { fuga: () => string; }; sfc: { hoge: () => string; nested: { count: () => string; }; }; }>>;');
+	});
+
+	it('injects localizer argument types from template placeholders', () => {
+		const input = [
+			'<script setup lang="ts">',
+			'const x = 1;',
+			'</script>',
+			'<locale locale="ja-JP" lang="yaml">',
+			'count: "{n} 個"',
+			'mixed: "{name}: {count}"',
+			'</locale>',
+		].join('\n');
+
+		const output = transformVueSfc(input, '/repo/src/App.vue');
+
+		expect(output).toContain('count: (values: { n: import("vue-internationalization/runtime").LocaleTemplateValue; }) => string;');
+		expect(output).toContain('mixed: (values: { name: import("vue-internationalization/runtime").LocaleTemplateValue; count: import("vue-internationalization/runtime").LocaleTemplateValue; }) => string;');
 	});
 
 	it('does not inject TypeScript type parameters into JavaScript setup blocks', () => {
