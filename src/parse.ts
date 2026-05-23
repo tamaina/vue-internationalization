@@ -2,7 +2,7 @@ import { parse as parseSfc } from '@vue/compiler-sfc';
 import ts from 'typescript';
 import YAML from 'yaml';
 import { createComponentLocaleType, createComponentLocalizerType, createLocalizerRefType, createUseLocaleTypeParameters, type LocaleBindingTypes } from './localeTypes.js';
-import { getScriptSetupOpenTag, injectScriptSetup } from './scriptSetup.js';
+import { getScriptOpenTag, getScriptSetupOpenTag, injectScriptSetup } from './scriptSetup.js';
 import type { LocaleDictionary, LocaleMessageFunction, ParsedVueLocale, SfcLocaleBlock } from './types.js';
 import type { YAMLError } from 'yaml';
 
@@ -187,8 +187,12 @@ export function stripLocaleBlocks(code: string, filename: string): string {
 
 export function injectLocaleBinding(code: string, types: LocaleBindingTypes = {}): string {
 	const setupOpenTag = getScriptSetupOpenTag(code);
-	const typeParameters = !setupOpenTag || isTypeScriptScript(setupOpenTag) ? createUseLocaleTypeParameters(types) : '';
-	const localizerType = !setupOpenTag || isTypeScriptScript(setupOpenTag) ? ` as ${createLocalizerRefType(types)}` : '';
+	const scriptOpenTag = getScriptOpenTag(code);
+	const shouldInjectTypes = setupOpenTag
+		? isTypeScriptScript(setupOpenTag)
+		: !scriptOpenTag || isTypeScriptScript(scriptOpenTag);
+	const typeParameters = shouldInjectTypes ? createUseLocaleTypeParameters(types) : '';
+	const localizerType = shouldInjectTypes ? ` as ${createLocalizerRefType(types)}` : '';
 	const injection = [
 		'',
 		'import { useLocale as __useLocale, useLocalizer as __useLocalizer } from "virtual:vue-internationalization";',
@@ -275,9 +279,15 @@ export function injectComponentLocaleOptions(
 	const result = parseSfc(code, { filename, pad: false });
 	const localeType = createComponentLocaleType(types);
 	const localizerType = createComponentLocalizerType(types);
+	const scriptOpenTag = result.descriptor.script ? getScriptOpenTag(result.descriptor.script.loc.source) ?? getScriptOpenTag(code) : undefined;
+	const setupOpenTag = result.descriptor.scriptSetup ? getScriptSetupOpenTag(result.descriptor.scriptSetup.loc.source) ?? getScriptSetupOpenTag(code) : undefined;
+	const shouldInjectTypes = scriptOpenTag
+		? isTypeScriptScript(scriptOpenTag)
+		: !setupOpenTag || isTypeScriptScript(setupOpenTag);
+	const scriptLangAttribute = scriptOpenTag ? '' : getScriptLangAttribute(setupOpenTag) ?? (shouldInjectTypes ? ' lang="ts"' : '');
 	const importLine = options.importLine ?? 'import { createComponentLocale as __createComponentLocale, createComponentLocalizer as __createComponentLocalizer } from "virtual:vue-internationalization";';
-	const localeExpression = options.localeExpression ?? `__createComponentLocale<${localeType}>(import.meta.url)`;
-	const localizerExpression = options.localizerExpression ?? `__createComponentLocalizer(import.meta.url) as ${localizerType}`;
+	const localeExpression = options.localeExpression ?? (shouldInjectTypes ? `__createComponentLocale<${localeType}>(import.meta.url)` : '__createComponentLocale(import.meta.url)');
+	const localizerExpression = options.localizerExpression ?? (shouldInjectTypes ? `__createComponentLocalizer(import.meta.url) as ${localizerType}` : '__createComponentLocalizer(import.meta.url)');
 	const importSection = importLine.length > 0 ? `${importLine}\n\n` : '';
 	const optionLines = [
 		`$locale: ${localeExpression},`,
@@ -285,7 +295,7 @@ export function injectComponentLocaleOptions(
 	];
 
 	if (!result.descriptor.script) {
-		return `${code}\n<script lang="ts">\n${importSection}export default {\n${optionLines.map((line) => `\t${line}`).join('\n')}\n};\n</script>\n`;
+		return `${code}\n<script${scriptLangAttribute}>\n${importSection}export default {\n${optionLines.map((line) => `\t${line}`).join('\n')}\n};\n</script>\n`;
 	}
 
 	const script = result.descriptor.script;
@@ -544,4 +554,9 @@ export function getPrimaryLocaleDictionary(
 
 function isTypeScriptScript(scriptOpenTag: string): boolean {
 	return /\blang\s*=\s*["']tsx?["']/.test(scriptOpenTag);
+}
+
+function getScriptLangAttribute(scriptOpenTag: string | undefined): string | undefined {
+	const lang = scriptOpenTag?.match(/\blang\s*=\s*(["'])(tsx?|jsx?)\1/)?.[0].replace(/\s*$/, '');
+	return lang ? ` ${lang}` : undefined;
 }

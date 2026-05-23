@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { compileScript, parse as parseSfc } from '@vue/compiler-sfc';
 import { injectLocaleBinding, parseLocaleDictionary, parseLocaleDictionaryForDiagnostics, parseScriptLocaleDictionaries, stripLocaleBlocks, transformVueSfc } from '../src/parse.js';
 
 describe('locale SFC parsing', () => {
@@ -64,6 +65,44 @@ describe('locale SFC parsing', () => {
 		expect(output).toContain('__VUE_INTERNATIONALIZATION_COMPONENT__.$locale = __createComponentLocale<{ title: string; count: string; }>(import.meta.url);');
 		expect(output).toContain('__VUE_INTERNATIONALIZATION_COMPONENT__.$l = __createComponentLocalizer(import.meta.url) as { title: () => string; count: (values: { n: import("vue-internationalization/runtime").LocaleTemplateValue; }) => string; };');
 		expect(output).toContain('export default __VUE_INTERNATIONALIZATION_COMPONENT__;');
+	});
+
+	it('keeps injected component accessors valid for plain JavaScript SFCs', () => {
+		const cases = [
+			[
+				'plain-script',
+				[
+					'<script>',
+					'export default { name: "PlainScript" };',
+					'</script>',
+					'<locale locale="en-US" lang="yaml">',
+					'title: Title',
+					'</locale>',
+				].join('\n'),
+			],
+			[
+				'plain-script-setup',
+				[
+					'<script setup>',
+					'const x = 1;',
+					'</script>',
+					'<locale locale="en-US" lang="yaml">',
+					'title: Title',
+					'</locale>',
+				].join('\n'),
+			],
+		] as const;
+
+		for (const [name, input] of cases) {
+			const output = transformVueSfc(input, `/repo/src/${name}.vue`, {
+				primaryLocale: 'en-US',
+			});
+
+			expect(output).not.toContain('__createComponentLocale<');
+			expect(output).not.toContain(' as { title: () => string; }');
+			expect(output).not.toContain('<script lang="ts">');
+			expect(() => compileScript(parseSfc(output ?? '', { filename: `${name}.vue` }).descriptor, { id: name })).not.toThrow();
+		}
 	});
 
 	it('injects primary locale dictionary types into TypeScript setup bindings', () => {
