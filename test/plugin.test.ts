@@ -280,6 +280,25 @@ describe('virtual module generation', () => {
 		expect(replaced).toContain('const missing = "$locale.sfc.missing";');
 	});
 
+	it('ignores non-marker calls with inline helper names', () => {
+		const code = [
+			'const locale = __VUE_INTERNATIONALIZATION_INLINE_LOCALE__("not-a-marker");',
+			'const localizers = __VUE_INTERNATIONALIZATION_INLINE_LOCALIZERS__("not-a-marker");',
+			'const text = __VUE_INTERNATIONALIZATION_INLINE_TEXT__("not-a-marker", "sfc.title");',
+			'const value = localizers.sfc.title({});',
+		].join('');
+
+		const replaced = internals.replaceInlineLocaleMemberAccess(
+			code,
+			'ja-JP',
+			'ja-JP',
+			{},
+			{},
+		);
+
+		expect(replaced).toBe(code);
+	});
+
 	it('replaces script localizer calls from inline localizer bindings', () => {
 		const marker = internals.injectInlineLocaleBinding('<script setup></script>', '/src/App.vue');
 		const binding = marker.match(/const \$l = (.*);/)?.[1];
@@ -287,6 +306,7 @@ describe('virtual module generation', () => {
 			`const l = ${binding};`,
 			'const apples = l.sfc.nApples({ n });',
 			'const refApples = l.value.sfc.nApples({ n: count });',
+			'const computedApples = l.sfc.nApples({ n: Math.max(count, 1) });',
 			'const missing = l.sfc.missing({ n });',
 		].join('');
 
@@ -309,12 +329,13 @@ describe('virtual module generation', () => {
 
 		expect(replaced).toContain('const apples = ((__values) => (__values.n == null ? "{n}" : __values.n) + " apples")({ n });');
 		expect(replaced).toContain('const refApples = ((__values) => (__values.n == null ? "{n}" : __values.n) + " apples")({ n: count });');
+		expect(replaced).toContain('const computedApples = ((__values) => (__values.n == null ? "{n}" : __values.n) + " apples")({ n: Math.max(count, 1) });');
 		expect(replaced).toContain('const missing = "$locale.sfc.missing";');
 	});
 
 	it('rewrites template locale access to inline text markers', () => {
 		const code = internals.rewriteInlineLocaleTemplateAccess(
-			'<template><p>{{ $locale.sfc.title }}</p><p>{{ $locale.env.missing }}</p><p>{{ $l.sfc.nApples({ n }) }}</p></template>',
+			'<template><p>{{ $locale.sfc.title }}</p><p>{{ $locale.env.missing }}</p><p>{{ $l.sfc.nApples({ n: Math.max(n, 1) }) }}</p></template>',
 			'/src/App.vue',
 		);
 
@@ -323,6 +344,25 @@ describe('virtual module generation', () => {
 		expect(code).toContain('"sfc.title"');
 		expect(code).toContain('"env.missing"');
 		expect(code).toContain('"sfc.nApples"');
+		expect(code).toContain('Math.max(n, 1)');
+	});
+
+	it('throws on invalid JavaScript during full inline chunk replacement', () => {
+		expect(() => internals.inlineLocaleChunks(
+			{
+				'assets/App.js': {
+					type: 'chunk',
+					fileName: 'assets/App.js',
+					code: `const broken = ; __VUE_INTERNATIONALIZATION_INLINE_LOCALE__(${JSON.stringify(internals.injectInlineLocaleBinding('<script setup></script>', '/src/App.vue').match(/"(__VUE_INTERNATIONALIZATION_INLINE__:[^"]+)"/)?.[1])});`,
+					imports: [],
+					dynamicImports: [],
+				},
+			},
+			['ja-JP'],
+			'ja-JP',
+			{},
+			{},
+		)).toThrow();
 	});
 
 	it('replaces template inline text markers with primary and key-path fallback', () => {
