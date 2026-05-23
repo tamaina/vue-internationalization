@@ -66,6 +66,7 @@ const plugin: VueLanguagePlugin<VueInternationalizationVolarPluginConfig> = ({ c
 				'const __VLS_ctx = {} as import(\'vue\').ComponentPublicInstance;',
 				`const __VLS_ctx = {} as import('vue').ComponentPublicInstance & { $locale: ${localeScopeType}; $l: ${localizerScopeType}; };`,
 			);
+			applyTemplateTsDirectives(ir.content, embeddedFile.content);
 		},
 	};
 };
@@ -132,6 +133,134 @@ function replaceGeneratedRange(content: Code[], start: number, end: number, repl
 	}
 
 	content.splice(0, content.length, ...next);
+}
+
+function insertGeneratedText(content: Code[], start: number, insertion: string): void {
+	const next: Code[] = [];
+	let offset = 0;
+	let inserted = false;
+
+	for (let index = 0; index < content.length; index++) {
+		const segment = content[index];
+		const text = getSegmentText(segment);
+
+		if (text === undefined) {
+			next.push(segment);
+			continue;
+		}
+
+		const segmentStart = offset;
+		const segmentEnd = offset + text.length;
+
+		if (!inserted && start >= segmentStart && start <= segmentEnd) {
+			const prefixEnd = start - segmentStart;
+
+			if (prefixEnd > 0) {
+				next.push(sliceSegment(segment, 0, prefixEnd));
+			}
+
+			next.push(insertion);
+			inserted = true;
+
+			if (prefixEnd < text.length) {
+				next.push(sliceSegment(segment, prefixEnd, text.length));
+			}
+		} else {
+			next.push(segment);
+		}
+
+		offset = segmentEnd;
+	}
+
+	if (!inserted) {
+		next.push(insertion);
+	}
+
+	content.splice(0, content.length, ...next);
+}
+
+function applyTemplateTsDirectives(source: string, content: Code[]): void {
+	const directives = findTemplateTsDirectives(source, getTemplateContentStart(source));
+
+	if (directives.length === 0) {
+		return;
+	}
+
+	const insertions = new Map<number, string>();
+	const consumedDirectiveIndexes = new Set<number>();
+	const contentText = getContentText(content);
+	let generatedOffset = 0;
+
+	for (const segment of content) {
+		const text = getSegmentText(segment);
+
+		if (text === undefined) {
+			continue;
+		}
+
+		if (typeof segment !== 'string' && typeof segment[2] === 'number') {
+			const lineStart = getLineStart(contentText, generatedOffset);
+			const lineEnd = contentText.indexOf('\n', generatedOffset);
+			const generatedLine = contentText.slice(lineStart, lineEnd < 0 ? undefined : lineEnd);
+			const directiveIndex = directives.findIndex((directive, index) =>
+				!consumedDirectiveIndexes.has(index) &&
+				directive.ends.some((end) => segment[2] > end) &&
+				generatedLine.includes('__VLS_ctx.'),
+			);
+
+			if (directiveIndex >= 0) {
+				insertions.set(lineStart, `${directives[directiveIndex]?.text}\n`);
+				consumedDirectiveIndexes.add(directiveIndex);
+			}
+		}
+
+		generatedOffset += text.length;
+	}
+
+	for (const [offset, text] of [...insertions].sort((a, b) => b[0] - a[0])) {
+		insertGeneratedText(content, offset, text);
+	}
+}
+
+function findTemplateTsDirectives(source: string, templateContentStart: number | undefined): Array<{ ends: number[]; text: string }> {
+	return [...source.matchAll(/<!--\s*@(ts-expect-error|ts-ignore)([^>]*)-->/g)]
+		.map((match) => ({
+			ends: getDirectiveEnds(match.index + match[0].length, templateContentStart),
+			text: `// @${match[1]}${normalizeDirectiveSuffix(match[2])}`,
+		}));
+}
+
+function getDirectiveEnds(end: number, templateContentStart: number | undefined): number[] {
+	return templateContentStart === undefined || end < templateContentStart
+		? [end]
+		: [end, end - templateContentStart];
+}
+
+function getTemplateContentStart(source: string): number | undefined {
+	const templateOpen = source.match(/<template\b[^>]*>/);
+
+	if (templateOpen?.index == null) {
+		return undefined;
+	}
+
+	return templateOpen.index + templateOpen[0].length;
+}
+
+function normalizeDirectiveSuffix(value: string): string {
+	const suffix = value.trim();
+	if (suffix.length === 0) {
+		return '';
+	}
+
+	return suffix.startsWith(':') ? suffix : ` ${suffix}`;
+}
+
+function getContentText(content: Code[]): string {
+	return content.map((segment) => getSegmentText(segment) ?? '').join('');
+}
+
+function getLineStart(text: string, offset: number): number {
+	return text.lastIndexOf('\n', offset - 1) + 1;
 }
 
 function getSegmentText(segment: Code): string | undefined {

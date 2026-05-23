@@ -28,6 +28,9 @@ function switchLocale(locale: string): void {
     <p>{{ $l.sfc.nApples({ n }) }}</p>
     <p>{{ scriptMessage }}</p>
     <p>{{ scriptApples }}</p>
+    <p>{{ $locale.sfc.missingTranslation }}</p>
+    <!-- @ts-expect-error: ts-plugin(2339) -->
+    <p>{{ $locale.sfc.noTranslation }}</p>
     <button type="button" @click="n++">+1</button>
     <StaticPanel />
     <AsyncPanel />
@@ -48,6 +51,7 @@ function switchLocale(locale: string): void {
 title: ほげ
 nApples: "{n} 個のりんご"
 scriptMessage: script setup の中で参照した翻訳
+missingTranslation: 英語の翻訳がない
 </locale>
 
 <locale locale="en-US" lang="yaml">

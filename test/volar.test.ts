@@ -36,7 +36,9 @@ describe('volar plugin', () => {
 		const plugin = createVueLanguagePlugin(ts, {}, vueCompilerOptions, String);
 		const fileName = resolve('examples/motivation-1/src/App.vue');
 		const source = [
-			'<template>{{ $locale.sfc.hoge }} {{ $locale.env.fuga }} {{ $l.sfc.count({ n: 1 }) }}</template>',
+			'<template>{{ $locale.sfc.hoge }} {{ $locale.env.fuga }} {{ $l.sfc.count({ n: 1 }) }}',
+			'<!-- @ts-expect-error: ts-plugin(2339) -->',
+			'{{ $locale.sfc.noTranslation }}</template>',
 			'<script setup lang="ts">',
 			'const title = $locale.value.sfc.hoge;',
 			'const count = $l.value.sfc.count({ n: 1 });',
@@ -76,6 +78,7 @@ describe('volar plugin', () => {
 		expect(scriptCode).toContain('$l: { env:');
 		expect(scriptCode).toContain('__VLS_ctx.$locale.sfc.hoge');
 		expect(scriptCode).toContain('__VLS_ctx.$l.sfc.count');
+		expect(scriptCode).toContain('// @ts-expect-error: ts-plugin(2339)\n( __VLS_ctx.$locale.sfc.noTranslation );');
 		expect(scriptSetupRaw?.trim()).toBe('const title = $locale.value.sfc.hoge;\nconst count = $l.value.sfc.count({ n: 1 });');
 	});
 });
