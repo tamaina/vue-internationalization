@@ -10,7 +10,7 @@ import {
 	createLocalizerDocumentationRefType,
 	createLocalizerDocumentationScopeType,
 } from './localeTypes.js';
-import { loadLocaleEnvDictionary, type LocaleEnvSources } from './localeEnv.js';
+import { expandLocaleEnvSources, loadLocaleEnvDictionary, type LocaleEnvSources } from './localeEnv.js';
 import {
 	mergeLocaleDictionaries,
 	parseLocaleDictionaryForDiagnostics,
@@ -34,7 +34,37 @@ const plugin: VueLanguagePlugin<VueInternationalizationVolarPluginConfig> = ({ c
 		version: 2.2,
 		name: 'vue-internationalization',
 		order: 1,
+		getLanguageId(fileName) {
+			if (isConfiguredGlobalLocaleFile(cache, config, fileName)) {
+				return 'vue-internationalization-locale';
+			}
+		},
+		isValidFile(_fileName, languageId) {
+			return languageId === 'vue-internationalization-locale';
+		},
+		parseSFC2(fileName, languageId, content) {
+			if (languageId !== 'vue-internationalization-locale') {
+				return;
+			}
+
+			return createGlobalLocaleSfc(fileName, content);
+		},
+		getEmbeddedCodes(fileName) {
+			if (isConfiguredGlobalLocaleFile(cache, config, fileName)) {
+				return [{
+					id: 'global_locale_diagnostics',
+					lang: 'ts',
+				}];
+			}
+
+			return [];
+		},
 		resolveEmbeddedCode(fileName, ir, embeddedFile) {
+			if (embeddedFile.id === 'global_locale_diagnostics') {
+				pushLocaleDiagnostics(embeddedFile.content, getGlobalLocaleDiagnostics(fileName, ir.content));
+				return;
+			}
+
 			if (!/^script_(js|jsx|ts|tsx)$/.test(embeddedFile.id) || !hasLocaleBlocks(ir.customBlocks)) {
 				return;
 			}
@@ -80,6 +110,7 @@ type GeneratedTypes = {
 
 type VolarCache = {
 	globalDictionaries: Map<string, LocaleDictionary | undefined>;
+	globalLocaleFiles: Map<string, Set<string>>;
 	moduleDictionaries: Map<string, LocaleDictionary>;
 	moduleDiagnostics: Map<string, LocaleBlockDiagnostic[]>;
 	generatedTypes: Map<string, GeneratedTypes>;
@@ -100,6 +131,7 @@ type LocaleBlockDiagnostic = LocaleDictionaryDiagnostic & {
 function createVolarCache(): VolarCache {
 	return {
 		globalDictionaries: new Map(),
+		globalLocaleFiles: new Map(),
 		moduleDictionaries: new Map(),
 		moduleDiagnostics: new Map(),
 		generatedTypes: new Map(),
@@ -479,6 +511,92 @@ function pushLocaleDiagnostics(content: Code[], diagnostics: LocaleBlockDiagnost
 	});
 }
 
+function getGlobalLocaleDiagnostics(fileName: string, content: string): LocaleBlockDiagnostic[] {
+	const result = parseLocaleDictionaryForDiagnostics(
+		content,
+		fileName.endsWith('.json') ? 'json' : 'yaml',
+		fileName,
+	);
+
+	return result.diagnostics.map((diagnostic) => ({
+		...diagnostic,
+		source: 'custom_block_0',
+	}));
+}
+
+function isConfiguredGlobalLocaleFile(
+	cache: VolarCache,
+	config: VueInternationalizationVolarPluginConfig,
+	fileName: string,
+): boolean {
+	if (!config.global) {
+		return false;
+	}
+
+	const configDir = findConfigDir(fileName);
+	const key = `${configDir}:${stableStringify(config.global)}`;
+	let files = cache.globalLocaleFiles.get(key);
+
+	if (!files) {
+		files = new Set();
+
+		for (const value of Object.values(config.global)) {
+			if (typeof value !== 'string' && !Array.isArray(value)) {
+				continue;
+			}
+
+			try {
+				for (const file of expandLocaleEnvSources(configDir, value)) {
+					files.add(normalizePath(file));
+				}
+			} catch {
+				// Invalid source configuration is handled by the existing global dictionary path.
+			}
+		}
+
+		cache.globalLocaleFiles.set(key, files);
+	}
+
+	return files.has(normalizePath(fileName));
+}
+
+function createGlobalLocaleSfc(fileName: string, content: string) {
+	return {
+		descriptor: {
+			filename: fileName,
+			source: content,
+			template: null,
+			script: null,
+			scriptSetup: null,
+			styles: [],
+			customBlocks: [{
+				type: 'global-locale',
+				content,
+				attrs: {},
+				lang: fileName.endsWith('.json') ? 'json' : 'yaml',
+				loc: {
+					source: content,
+					start: {
+						line: 1,
+						column: 1,
+						offset: 0,
+					},
+					end: {
+						line: 1,
+						column: 1 + content.length,
+						offset: content.length,
+					},
+				},
+			}],
+			comments: [],
+			cssVars: [],
+			slotted: false,
+			shouldForceReload: () => false,
+		},
+		errors: [],
+	};
+}
+
 function getGlobalDictionary(
 	cache: VolarCache,
 	config: VueInternationalizationVolarPluginConfig,
@@ -550,4 +668,8 @@ function stableStringify(value: unknown): string {
 	}
 
 	return JSON.stringify(value);
+}
+
+function normalizePath(value: string): string {
+	return value.replace(/\\/g, '/');
 }

@@ -46,7 +46,7 @@ function mergeLocaleEnvDictionary(
 	}
 }
 
-function expandLocaleEnvSources(root: string, source: string | string[]): string[] {
+export function expandLocaleEnvSources(root: string, source: string | string[]): string[] {
 	const sources = Array.isArray(source) ? source : [source];
 	const files = new Set<string>();
 
