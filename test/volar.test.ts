@@ -275,6 +275,49 @@ describe('volar plugin', () => {
 		)).toBe(true);
 		expect(diagnostics.some((message) => message.includes('contains unsafe locale key'))).toBe(true);
 	});
+
+	it('keeps Vue file type injection working when a configured global locale file is invalid', () => {
+		const root = mkdtempSync(resolve(tmpdir(), 'vue-internationalization-volar-'));
+		mkdirSync(resolve(root, 'locales'), { recursive: true });
+		writeFileSync(resolve(root, 'tsconfig.json'), '{}');
+		writeFileSync(resolve(root, 'locales/ja-JP.yaml'), '- broken\n');
+		const vueCompilerOptions = getDefaultCompilerOptions();
+		vueCompilerOptions.plugins = [
+			withConfig(vueInternationalizationVolar, {
+				__moduleConfig: {
+					name: 'vue-internationalization/volar',
+					primaryLocale: 'ja-JP',
+					global: {
+						'ja-JP': './locales/ja-JP.yaml',
+					},
+				},
+			}),
+		];
+		const plugin = createVueLanguagePlugin(ts, {}, vueCompilerOptions, String);
+		const fileName = resolve(root, 'src/App.vue');
+		const source = [
+			'<template>{{ $locale.sfc.title }}</template>',
+			'<script setup lang="ts">',
+			'const title = $locale.value.sfc.title;',
+			'</script>',
+			'<locale locale="ja-JP" lang="yaml">',
+			'title: ok',
+			'</locale>',
+		].join('\n');
+		const rootCode = plugin.createVirtualCode?.(fileName, 'vue', ts.ScriptSnapshot.fromString(source), {} as never);
+
+		if (!rootCode) {
+			throw new Error('Expected Vue virtual code to be created.');
+		}
+
+		const scriptCode = [...forEachEmbeddedCode(rootCode)]
+			.find((code) => code.id === 'script_ts')
+			?.snapshot.getText(0, Number.MAX_SAFE_INTEGER);
+
+		expect(scriptCode).toContain('declare const $locale');
+		expect(scriptCode).toContain('{ title: "ok"; }');
+		expect(scriptCode).toContain('LocaleScope<{}, { title: "ok"; }>');
+	});
 });
 
 function withConfig(

@@ -10,7 +10,11 @@ import {
 	createLocalizerDocumentationRefType,
 	createLocalizerDocumentationScopeType,
 } from './localeTypes.js';
-import { expandLocaleEnvSources, loadLocaleEnvDictionary, type LocaleEnvSources } from './localeEnv.js';
+import {
+	expandLocaleEnvSources,
+	loadLocaleEnvDictionaryForDiagnostics,
+	type LocaleEnvSources,
+} from './localeEnv.js';
 import {
 	mergeLocaleDictionaries,
 	parseLocaleDictionaryForDiagnostics,
@@ -636,7 +640,7 @@ function getGlobalDictionary(
 		return cached;
 	}
 
-	const dictionary = loadLocaleEnvDictionary(configDir, primaryLocale, value);
+	const dictionary = loadLocaleEnvDictionaryForDiagnostics(configDir, primaryLocale, value);
 	cache.globalDictionaries.set(key, dictionary);
 	return dictionary;
 }

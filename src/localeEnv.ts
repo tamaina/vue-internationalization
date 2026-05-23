@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
-import { parseLocaleDictionary } from './parse.js';
+import { parseLocaleDictionary, parseLocaleDictionaryForDiagnostics } from './parse.js';
 import type { LocaleDictionary } from './types.js';
 
 export type LocaleEnvSource = LocaleDictionary | string | string[];
@@ -14,6 +14,26 @@ export function loadLocaleEnvDictionary(root: string, locale: string, source: st
 		const lang = file.endsWith('.json') ? 'json' : 'yaml';
 		const dictionary = parseLocaleDictionary(readFileSync(file, 'utf8'), lang, file);
 		mergeLocaleEnvDictionary(merged, dictionary, [], `${locale}:${file}`);
+	}
+
+	return merged;
+}
+
+export function loadLocaleEnvDictionaryForDiagnostics(root: string, locale: string, source: string | string[]): LocaleDictionary {
+	let files: string[];
+
+	try {
+		files = expandLocaleEnvSources(root, source);
+	} catch {
+		return {};
+	}
+
+	const merged: LocaleDictionary = {};
+
+	for (const file of files) {
+		const lang = file.endsWith('.json') ? 'json' : 'yaml';
+		const dictionary = parseLocaleDictionaryForDiagnostics(readFileSync(file, 'utf8'), lang, file).dictionary;
+		mergeLocaleEnvDictionaryForDiagnostics(merged, dictionary);
 	}
 
 	return merged;
@@ -40,6 +60,19 @@ function mergeLocaleEnvDictionary(
 
 		if (Object.prototype.hasOwnProperty.call(target, key)) {
 			console.warn(`[vue-internationalization] Duplicate env key "${currentPath.join('.')}" in ${sourceLabel}; overwriting previous value.`);
+		}
+
+		target[key] = value;
+	}
+}
+
+function mergeLocaleEnvDictionaryForDiagnostics(target: LocaleDictionary, source: LocaleDictionary): void {
+	for (const [key, value] of Object.entries(source)) {
+		const current = target[key];
+
+		if (isPlainDictionary(current) && isPlainDictionary(value)) {
+			mergeLocaleEnvDictionaryForDiagnostics(current, value);
+			continue;
 		}
 
 		target[key] = value;
