@@ -4,7 +4,7 @@ import { defineInternationalization } from 'virtual:vue-internationalization';
 defineInternationalization({
 	'ja-JP': {
 		scriptDefined: {
-			title: 'script-defined locale message',
+			title: 'scriptでTypeScriptで定義されたコードです',
 			greeting: (values?: { name?: string }) => `こんにちは ${values?.name ?? '名無し'}、script 内の関数翻訳です`,
 		},
 	},
