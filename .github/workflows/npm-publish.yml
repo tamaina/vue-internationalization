@@ -1,0 +1,74 @@
+name: Publish to npm
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.16.0
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Read package metadata
+        id: package
+        run: |
+          echo "name=$(node -p "require('./package.json').name")" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve npm tag
+        id: npm_tag
+        run: |
+          version="${{ steps.package.outputs.version }}"
+
+          if [[ "$version" != *-* ]]; then
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          prerelease="${version#*-}"
+          channel="${prerelease%%.*}"
+
+          case "$channel" in
+            alpha|beta|rc)
+              echo "tag=$channel" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "tag=next" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+      - name: Check npm version
+        id: npm
+        run: |
+          if npm view "${{ steps.package.outputs.name }}@${{ steps.package.outputs.version }}" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish
+        if: steps.npm.outputs.exists != 'true'
+        run: npm publish --tag "${{ steps.npm_tag.outputs.tag }}" --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Skip existing version
+        if: steps.npm.outputs.exists == 'true'
+        run: echo "${{ steps.package.outputs.name }}@${{ steps.package.outputs.version }} is already published."
