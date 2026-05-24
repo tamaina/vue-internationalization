@@ -237,8 +237,25 @@ export function vueInternationalization(options?: Partial<VueInternationalizatio
 					modules,
 					globalMessages,
 					currentOptions.messageSyntax,
+					{
+						emitChunk: chunk => {
+							this.emitFile({
+								type: 'asset',
+								fileName: chunk.fileName,
+								source: chunk.code,
+							});
+						},
+					},
 				);
-				inlineLocaleHtml(bundle as Record<string, unknown>, inlineManifest);
+				inlineLocaleHtml(bundle as Record<string, unknown>, inlineManifest, {
+					emitAsset: asset => {
+						this.emitFile({
+							type: 'asset',
+							fileName: asset.fileName,
+							source: asset.source,
+						});
+					},
+				});
 			}
 		},
 		writeBundle(outputOptions, bundle) {

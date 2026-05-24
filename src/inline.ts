@@ -95,6 +95,8 @@ type MutableOutputAsset = {
 	originalFileNames?: string[];
 	[key: string]: unknown;
 };
+type InlineLocaleChunkEmitter = (chunk: MutableOutputChunk) => void;
+type InlineLocaleAssetEmitter = (asset: MutableOutputAsset) => void;
 
 const INLINE_MARKER_PREFIX = '__VUE_INTERNATIONALIZATION_INLINE__:';
 const INLINE_LOCALE_CALL = '__VUE_INTERNATIONALIZATION_INLINE_LOCALE__';
@@ -365,6 +367,9 @@ export function inlineLocaleChunks(
 	modules: ModuleMessages,
 	globalMessages: LocaleMessages,
 	messageSyntax: LocaleMessageSyntax = 'vue',
+	options: {
+		emitChunk?: InlineLocaleChunkEmitter;
+	} = {},
 ): InlineChunkManifest {
 	const manifest: InlineChunkManifest = {
 		primaryLocale,
@@ -405,9 +410,13 @@ export function inlineLocaleChunks(
 				locale,
 			);
 
-			bundle[localizedChunk.fileName] = localizedChunk;
-			localeFiles[locale] = localizedChunk.fileName;
-		}
+				if (options.emitChunk) {
+					options.emitChunk(localizedChunk);
+				} else {
+					bundle[localizedChunk.fileName] = localizedChunk;
+				}
+				localeFiles[locale] = localizedChunk.fileName;
+			}
 
 		delete bundle[originalFileName];
 		manifest.entries.push({
@@ -501,20 +510,31 @@ function replaceInlineLocaleMemberAccessWithResolver(code: string, resolvePayloa
 	});
 }
 
-export function inlineLocaleHtml(bundle: MutableOutputBundle, manifest: InlineChunkManifest): void {
+export function inlineLocaleHtml(
+	bundle: MutableOutputBundle,
+	manifest: InlineChunkManifest,
+	options: {
+		emitAsset?: InlineLocaleAssetEmitter;
+	} = {},
+): void {
 	for (const asset of Object.values(bundle)) {
 		if (!isMutableOutputAsset(asset) || typeof asset.source !== 'string' || !asset.fileName.endsWith('.html')) {
 			continue;
 		}
 
 		for (const loader of getInlineLocaleHtmlLoaders(asset.source, manifest)) {
-			bundle[loader.fileName] = {
+			const loaderAsset: MutableOutputAsset = {
 				type: 'asset',
 				fileName: loader.fileName,
 				names: [],
 				originalFileNames: [],
 				source: loader.source,
 			};
+			if (options.emitAsset) {
+				options.emitAsset(loaderAsset);
+			} else {
+				bundle[loader.fileName] = loaderAsset;
+			}
 		}
 
 		asset.source = replaceInlineLocaleHtml(asset.source, manifest);

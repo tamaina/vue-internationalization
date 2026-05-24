@@ -796,6 +796,54 @@ describe('virtual module generation', () => {
 		expect(bundle['assets/App.en-US.js'].code).toContain('./AsyncPanel.en-US.js');
 	});
 
+	it('can emit localized chunks without assigning to the output bundle', () => {
+		const marker = internals.injectInlineLocaleBinding('<script setup></script>', '/src/App.vue');
+		const code = marker.match(/const \$locale = (.*);/)?.[1];
+		const emitted: Array<{ fileName: string; code: string }> = [];
+		const bundle: Record<string, {
+			type: string;
+			fileName: string;
+			code: string;
+			imports: string[];
+			dynamicImports: string[];
+		}> = {
+			'assets/App.js': {
+				type: 'chunk',
+				fileName: 'assets/App.js',
+				code: `const msg = ${code};`,
+				imports: [],
+				dynamicImports: [],
+			},
+		};
+
+		internals.inlineLocaleChunks(
+			bundle,
+			['en-US', 'ja-JP'],
+			'ja-JP',
+			{
+				'/src/App.vue': {
+					'ja-JP': { title: 'ほげ' },
+					'en-US': { title: 'Title' },
+				},
+			},
+			{},
+			'vue',
+			{
+				emitChunk: chunk => emitted.push({
+					fileName: chunk.fileName,
+					code: chunk.code,
+				}),
+			},
+		);
+
+		expect(bundle['assets/App.js']).toBeUndefined();
+		expect(emitted.map(chunk => chunk.fileName).sort()).toEqual([
+			'assets/App.en-US.js',
+			'assets/App.ja-JP.js',
+		]);
+		expect(emitted.find(chunk => chunk.fileName.endsWith('.en-US.js'))?.code).toContain('"title":"Title"');
+	});
+
 	it('rewrites html entry script to an external locale loader', () => {
 		const bundle: Record<string, {
 			type: string;

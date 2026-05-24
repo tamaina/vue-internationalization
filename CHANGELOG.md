@@ -3,6 +3,7 @@
 ### Changes
 
 - fix: Preserve Vue `<script setup generic="...">` attributes when injecting setup bindings.
+- fix: Emit inline locale chunks through the plugin context for Rolldown compatibility.
 
 
 ## 0.6.0
