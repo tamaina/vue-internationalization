@@ -1,8 +1,13 @@
 # vite-vue-internationalization
 
-Vue SFC に翻訳をそのまま置ける、Vite 向けの型付き国際化プラグインです。
+A typed internationalization plugin for Vite that lets Vue SFCs own their translations directly.
 
-`<locale>` カスタムブロック、グローバル辞書、Volar 型補完、ロケール別チャンク出力をまとめて扱えます。
+## Documentation
+
+- [English documentation](./docs/en/index.md)
+- [日本語ドキュメント](./docs/index.md)
+
+It supports `<locale>` custom blocks, global dictionaries, Volar type completion, and optional locale-specific chunk output.
 
 ```vue
 <template>
@@ -25,16 +30,16 @@ count: "one apple | {n} apples"
 </locale>
 ```
 
-## 特長
+## Features
 
-- Vue SFC の `<locale>` ブロックに YAML / JSON で翻訳を書ける
-- `$locale` と `$l` に型が付き、テンプレートでも TypeScript でも補完できる
-- アプリ全体のグローバル辞書も同じ API で参照できる
-- Vue I18n 互換構文（`vue`）と ICU メッセージ構文（`icu`）を選べる
-- `virtual` と `inline-chunks` の 2 つのビルド戦略を選べる
-- Vite プラグインと Vue Language Tools / Volar で同じ設定を共有できる
+- Write translations as YAML or JSON in Vue SFC `<locale>` blocks.
+- Get typed `$locale` and `$l` completions in templates and TypeScript.
+- Read app-wide global dictionaries through the same API.
+- Choose between Vue I18n-compatible syntax (`vue`) and ICU message syntax (`icu`).
+- Choose either the `virtual` or `inline-chunks` build strategy.
+- Share the same configuration between the Vite plugin and Vue Language Tools / Volar.
 
-## 最小構成
+## Minimal Setup
 
 ```ts
 // vite.config.ts
@@ -83,21 +88,28 @@ await internationalization.ready;
 app.mount('#app');
 ```
 
-## ドキュメント
+## Documentation Pages
 
-- [はじめる](./docs/getting-started.md)
-- [設定](./docs/configuration.md)
-- [メッセージ定義](./docs/messages.md)
-- [メッセージ構文](./docs/message-syntax.md)
-- [ビルド戦略](./docs/build-strategy.md)
-- [API リファレンス](./docs/api.md)
+- English:
+  - [Getting Started](./docs/en/getting-started.md)
+  - [Configuration](./docs/en/configuration.md)
+  - [Messages](./docs/en/messages.md)
+  - [Message Syntax](./docs/en/message-syntax.md)
+  - [Build Strategy](./docs/en/build-strategy.md)
+- Japanese:
+  - [はじめる](./docs/getting-started.md)
+  - [設定](./docs/configuration.md)
+  - [メッセージ定義](./docs/messages.md)
+  - [メッセージ構文](./docs/message-syntax.md)
+  - [ビルド戦略](./docs/build-strategy.md)
+  - [API リファレンス](./docs/api.md)
 
 ## Examples
 
 - [Vue syntax example on StackBlitz](https://stackblitz.com/github/tamaina/vite-vue-internationalization?startScript=example%3Avue&title=vite-vue-internationalization%20Vue%20syntax)
 - [ICU syntax example on StackBlitz](https://stackblitz.com/github/tamaina/vite-vue-internationalization?startScript=example%3Aicu&title=vite-vue-internationalization%20ICU%20syntax)
 
-ローカルでドキュメントを見る場合:
+To view the documentation locally:
 
 ```sh
 pnpm docs:dev
