@@ -33,6 +33,7 @@ export type VueInternationalizationVolarPluginConfig = {
 	global?: LocaleEnvSources;
 	localizerDocumentation?: boolean;
 	messageSyntax?: LocaleMessageSyntax;
+	sfcTransform?: 'locale-sources' | 'all';
 };
 
 const plugin: VueLanguagePlugin<VueInternationalizationVolarPluginConfig> = ({ config }) => {
@@ -43,7 +44,7 @@ const plugin: VueLanguagePlugin<VueInternationalizationVolarPluginConfig> = ({ c
 		name: 'vite-vue-internationalization',
 		order: 1,
 		resolveEmbeddedCode(fileName, ir, embeddedFile) {
-			if (!/^script_(js|jsx|ts|tsx)$/.test(embeddedFile.id) || !hasLocaleSources(ir.content, ir.customBlocks)) {
+			if (!/^script_(js|jsx|ts|tsx)$/.test(embeddedFile.id) || !shouldInjectLocaleTypes(config, ir.content, ir.customBlocks)) {
 				return;
 			}
 
@@ -119,6 +120,14 @@ function createVolarCache(): VolarCache {
 		moduleDiagnostics: new Map(),
 		generatedTypes: new Map(),
 	};
+}
+
+function shouldInjectLocaleTypes(
+	config: VueInternationalizationVolarPluginConfig,
+	content: string,
+	customBlocks: readonly { type: string }[],
+): boolean {
+	return config.sfcTransform === 'all' || hasLocaleSources(content, customBlocks);
 }
 
 function hasLocaleSources(content: string, customBlocks: readonly { type: string }[]): boolean {

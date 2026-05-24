@@ -2,6 +2,7 @@ export { vueInternationalization } from './plugin.js';
 export type {
 	LocaleDictionary,
 	LocaleMessages,
+	SfcTransformMode,
 	VueInternationalizationOptions,
 } from './plugin.js';
 export {

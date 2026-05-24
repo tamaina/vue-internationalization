@@ -36,13 +36,15 @@ Do not blindly replace all `$locale.env.foo` occurrences with one shape. Templat
 
 ## Transformation Scope
 
-The Vite plugin transforms Vue SFC files (`.vue`) that contain `<locale>` blocks or top-level `defineInternationalization()` calls.
+By default, the Vite plugin transforms Vue SFC files (`.vue`) that contain `<locale>` blocks or top-level `defineInternationalization()` calls.
+
+When `sfcTransform: 'all'` is configured, the Vite plugin injects `$locale` and `$l` into every Vue SFC. This is intended for projects that need `$locale.env` or `$l.env` global dictionary access from SFCs that do not own local messages.
 
 Plain `.ts` modules are not SFC transform targets. Do not assume `$locale` or `$l` is available in ordinary TypeScript modules. For non-SFC code, pass translated values in from Vue code or use an installed runtime instance through the public runtime APIs where appropriate.
 
 Do not add empty `defineInternationalization({ 'ja-JP': {} })` calls to every SFC just to force VVI transformation. That is a workaround, not intended usage. It can inject unnecessary bindings and component options, broaden `inline-chunks` localization, duplicate more chunks than needed, and obscure which components actually own messages.
 
-If an app needs global dictionary access in many SFCs that do not own local messages, prefer an explicit package feature or configuration option over injecting empty dictionaries into user components.
+If an app needs global dictionary access in many SFCs that do not own local messages, prefer `sfcTransform: 'all'` over injecting empty dictionaries into user components.
 
 ## Message Sources
 

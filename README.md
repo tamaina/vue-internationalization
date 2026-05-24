@@ -35,6 +35,7 @@ count: "one apple | {n} apples"
 - Write translations as YAML or JSON in Vue SFC `<locale>` blocks.
 - Get typed `$locale` and `$l` completions in templates and TypeScript.
 - Read app-wide global dictionaries through the same API.
+- Opt into injecting `$locale` and `$l` for every SFC when global dictionary access is needed outside locale-owning components.
 - Choose between Vue I18n-compatible syntax (`vue`) and ICU message syntax (`icu`).
 - Choose either the `virtual` or `inline-chunks` build strategy.
 - Share the same configuration between the Vite plugin and Vue Language Tools / Volar.
@@ -63,6 +64,22 @@ export default defineConfig({
       {
         "name": "vite-vue-internationalization/volar",
         "primaryLocale": "ja-JP"
+      }
+    ]
+  }
+}
+```
+
+Set `sfcTransform: "all"` when SFCs without `<locale>` blocks or `defineInternationalization()` still need `$locale.env` or `$l.env` global dictionary access:
+
+```json
+{
+  "vueCompilerOptions": {
+    "plugins": [
+      {
+        "name": "vite-vue-internationalization/volar",
+        "primaryLocale": "ja-JP",
+        "sfcTransform": "all"
       }
     ]
   }

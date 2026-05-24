@@ -90,6 +90,44 @@ describe('volar plugin', () => {
 		expect(scriptSetupRaw?.trim()).toBe('const title = $locale.value.sfc.hoge;\nconst count = $l.value.sfc.count({ n: 1 });');
 	});
 
+	it('injects global setup bindings into SFCs without locale sources when enabled', () => {
+		const vueCompilerOptions = getDefaultCompilerOptions();
+		vueCompilerOptions.plugins = [
+			withConfig(vueInternationalizationVolar, {
+				__moduleConfig: {
+					name: 'vite-vue-internationalization/volar',
+					primaryLocale: 'ja-JP',
+					sfcTransform: 'all',
+					global: {
+						'ja-JP': {
+							title: 'アプリ',
+						},
+					},
+				},
+			}),
+		];
+		const plugin = createVueLanguagePlugin(ts, {}, vueCompilerOptions, String);
+		const fileName = resolve('examples/vue/src/Plain.vue');
+		const source = [
+			'<template>{{ $locale.env.title }}</template>',
+			'<script setup lang="ts">',
+			'const title = $locale.value.env.title;',
+			'</script>',
+		].join('\n');
+		const root = plugin.createVirtualCode?.(fileName, 'vue', ts.ScriptSnapshot.fromString(source), {} as never);
+
+		if (!root) {
+			throw new Error('Expected Vue virtual code to be created.');
+		}
+
+		const scriptCode = [...forEachEmbeddedCode(root)]
+			.find((code) => code.id === 'script_ts')
+			?.snapshot.getText(0, Number.MAX_SAFE_INTEGER);
+
+		expect(scriptCode).toContain('declare const $locale: Readonly<import("vue").ComputedRef<import("vite-vue-internationalization/runtime").LocaleScope<{ title: "アプリ"; }, {}>>>;');
+		expect(scriptCode).toContain('__VLS_ctx.$locale.env.title');
+	});
+
 	it('can skip verbose localizer documentation in generated editor types', () => {
 		const vueCompilerOptions = getDefaultCompilerOptions();
 		vueCompilerOptions.plugins = [

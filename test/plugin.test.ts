@@ -17,6 +17,7 @@ describe('virtual module generation', () => {
 						primaryLocale: 'ja-JP',
 						buildStrategy: 'inline-chunks',
 						messageSyntax: 'icu',
+						sfcTransform: 'all',
 						scan: {
 							include: 'src/**/*.vue',
 							exclude: ['src/legacy/**'],
@@ -33,6 +34,7 @@ describe('virtual module generation', () => {
 			primaryLocale: 'ja-JP',
 			buildStrategy: 'inline-chunks',
 			messageSyntax: 'icu',
+			sfcTransform: 'all',
 			scan: {
 				include: 'src/**/*.vue',
 				exclude: ['src/legacy/**'],
@@ -62,6 +64,7 @@ describe('virtual module generation', () => {
 			buildStrategy: undefined,
 			global: undefined,
 			messageSyntax: 'vue',
+			sfcTransform: 'locale-sources',
 		});
 	});
 
@@ -85,6 +88,7 @@ describe('virtual module generation', () => {
 			buildStrategy: undefined,
 			global: undefined,
 			messageSyntax: 'vue',
+			sfcTransform: 'locale-sources',
 		});
 	});
 
@@ -270,6 +274,19 @@ describe('virtual module generation', () => {
 		expect(output).toContain('__VUE_INTERNATIONALIZATION_INLINE_TEXT__');
 		expect(output).toContain('$locale: __VUE_INTERNATIONALIZATION_INLINE_LOCALE__');
 		expect(output).toContain('$l: __VUE_INTERNATIONALIZATION_INLINE_LOCALIZERS__');
+	});
+
+	it('injects inline bindings for SFCs without locale sources when enabled', () => {
+		const output = internals.transformVueSfcInline([
+			'<template>{{ $locale.env.title }}</template>',
+			'<script setup lang="ts">',
+			'const count = 1;',
+			'</script>',
+		].join('\n'), '/repo/src/App.vue', '/repo', 'ja-JP', true);
+
+		expect(output).toContain('__VUE_INTERNATIONALIZATION_INLINE_LOCALE__');
+		expect(output).toContain('__VUE_INTERNATIONALIZATION_INLINE_TEXT__');
+		expect(output).toContain('$locale: __VUE_INTERNATIONALIZATION_INLINE_LOCALE__');
 	});
 
 	it('replaces script member access from inline locale bindings', () => {

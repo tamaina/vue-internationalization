@@ -42,7 +42,7 @@ This supports type checking in `vue-tsc` and type annotations in the official Vu
 ## Documentation
 
 - [Getting Started](./getting-started.md): Vite plugin, type declarations, app installation, and SFC messages
-- [Configuration](./configuration.md): `primaryLocale`, `global`, `messageSyntax`, `buildStrategy`, and `scan`
+- [Configuration](./configuration.md): `primaryLocale`, `global`, `messageSyntax`, `buildStrategy`, `scan`, and `sfcTransform`
 - [Messages](./messages.md): `<locale>` blocks, global dictionaries, locale-only SFCs, and script-defined messages
 - [Message Syntax](./message-syntax.md): `vue` syntax and `icu` syntax
 - [Build Strategy](./build-strategy.md): choosing between `virtual` and `inline-chunks`

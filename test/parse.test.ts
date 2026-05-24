@@ -41,6 +41,29 @@ describe('locale SFC parsing', () => {
 		expect(output).toContain('$l: __createComponentLocalizer(import.meta.url)');
 	});
 
+	it('injects setup bindings for SFCs without locale sources when enabled', () => {
+		const input = [
+			'<script setup lang="ts">',
+			'const x = 1;',
+			'</script>',
+			'<template>{{ $locale.env.title }}</template>',
+		].join('\n');
+
+		expect(transformVueSfc(input, '/repo/src/App.vue')).toBeUndefined();
+
+		const output = transformVueSfc(input, '/repo/src/App.vue', {
+			global: {
+				title: 'App',
+			},
+			transformAll: true,
+		});
+
+		expect(output).toContain('const $locale = __useLocale<{ title: string; }, {}>(import.meta.url);');
+		expect(output).toContain('const $l = __useLocalizer(import.meta.url) as Readonly<import("vue").ComputedRef<{ env: { title: () => string; }; sfc: import("vite-vue-internationalization/runtime").LocaleLocalizerDictionary; }>>;');
+		expect(output).toContain('$locale: __createComponentLocale<{}>(import.meta.url)');
+		expect(output).toContain('$l: __createComponentLocalizer(import.meta.url)');
+	});
+
 	it('attaches SFC locale accessors to the component default export', () => {
 		const input = [
 			'<script lang="ts">',

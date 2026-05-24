@@ -7,6 +7,7 @@ export type LocaleBindingTypes = {
 	global?: LocaleDictionary;
 	module?: LocaleDictionary;
 	messageSyntax?: LocaleMessageSyntax;
+	transformAll?: boolean;
 };
 
 export function createUseLocaleTypeParameters(types: LocaleBindingTypes): string {

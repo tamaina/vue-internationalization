@@ -207,7 +207,7 @@ export function injectLocaleBinding(code: string, types: LocaleBindingTypes = {}
 export function transformVueSfc(code: string, filename: string, types: LocaleBindingTypes = {}): string | undefined {
 	const parsed = parseVueLocales(code, filename);
 
-	if (parsed.blocks.length === 0 && Object.keys(parsed.scriptMessages).length === 0) {
+	if (!types.transformAll && parsed.blocks.length === 0 && Object.keys(parsed.scriptMessages).length === 0) {
 		return undefined;
 	}
 

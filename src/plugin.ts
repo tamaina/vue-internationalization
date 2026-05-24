@@ -39,6 +39,8 @@ export type { LocaleDictionary };
 /** Locale dictionaries keyed by locale code. */
 export type LocaleMessages = Partial<Record<string, LocaleDictionary>>;
 export type { LocaleEnvSource, LocaleEnvSources };
+/** Controls which Vue SFC files receive `$locale` and `$l` bindings. */
+export type SfcTransformMode = 'locale-sources' | 'all';
 
 /** Options for the Vite plugin and the matching Volar plugin configuration. */
 export type VueInternationalizationOptions = {
@@ -52,6 +54,8 @@ export type VueInternationalizationOptions = {
 	scan?: ScanVueFilesOptions;
 	/** Message parser used for string messages in the whole project. */
 	messageSyntax?: LocaleMessageSyntax;
+	/** Controls which Vue SFC files receive injected `$locale` and `$l` bindings. */
+	sfcTransform?: SfcTransformMode;
 };
 type ResolvedVueInternationalizationOptions = VueInternationalizationOptions;
 type TsconfigVueCompilerPlugin = {
@@ -61,6 +65,7 @@ type TsconfigVueCompilerPlugin = {
 	buildStrategy?: unknown;
 	scan?: unknown;
 	messageSyntax?: unknown;
+	sfcTransform?: unknown;
 };
 
 type ModuleMessages = Partial<Record<string, LocaleMessages>>;
@@ -198,11 +203,12 @@ export function vueInternationalization(options?: Partial<VueInternationalizatio
 			const currentOptions = getResolvedOptions(resolvedOptions);
 			const transformed =
 				command === 'build' && currentOptions.buildStrategy === 'inline-chunks'
-					? transformVueSfcInline(code, id, root, currentOptions.primaryLocale)
+					? transformVueSfcInline(code, id, root, currentOptions.primaryLocale, currentOptions.sfcTransform === 'all')
 					: transformVueSfc(code, id, {
 						primaryLocale: currentOptions.primaryLocale,
 						global: globalMessages[currentOptions.primaryLocale],
 						messageSyntax: currentOptions.messageSyntax,
+						transformAll: currentOptions.sfcTransform === 'all',
 					});
 
 			if (!transformed) {
@@ -290,6 +296,7 @@ function resolveOptions(root: string, options: Partial<VueInternationalizationOp
 		buildStrategy: merged.buildStrategy,
 		scan: merged.scan,
 		messageSyntax: merged.messageSyntax ?? 'vue',
+		sfcTransform: merged.sfcTransform ?? 'locale-sources',
 	};
 }
 
@@ -343,6 +350,10 @@ function normalizeTsconfigPluginOptions(
 
 	if (plugin.messageSyntax === 'vue' || plugin.messageSyntax === 'icu') {
 		result.messageSyntax = plugin.messageSyntax;
+	}
+
+	if (plugin.sfcTransform === 'locale-sources' || plugin.sfcTransform === 'all') {
+		result.sfcTransform = plugin.sfcTransform;
 	}
 
 	return result;
@@ -565,10 +576,10 @@ function toRuntimeModuleId(filename: string, root: string): string {
 	return `/${relativePath}`;
 }
 
-function transformVueSfcInline(code: string, filename: string, root: string, primaryLocale?: string): string | undefined {
+function transformVueSfcInline(code: string, filename: string, root: string, primaryLocale?: string, transformAll = false): string | undefined {
 	const parsed = parseVueLocales(code, filename);
 
-	if (parsed.blocks.length === 0 && Object.keys(parsed.scriptMessages).length === 0) {
+	if (!transformAll && parsed.blocks.length === 0 && Object.keys(parsed.scriptMessages).length === 0) {
 		return undefined;
 	}
 

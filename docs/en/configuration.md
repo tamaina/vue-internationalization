@@ -11,12 +11,24 @@ To get types in VS Code and `vue-tsc`, configuring it in the Vite root `tsconfig
         "name": "vite-vue-internationalization/volar",
         "primaryLocale": "en-US",
         "messageSyntax": "vue",
-        "buildStrategy": "virtual"
+        "buildStrategy": "virtual",
+        "sfcTransform": "locale-sources"
       }
     ]
   }
 }
 ```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `primaryLocale` | required | Locale used as the source for generated types. |
+| `global` | `undefined` | Sources for global dictionaries keyed by locale. |
+| `buildStrategy` | `virtual` | Choose `virtual` or `inline-chunks`. |
+| `scan.include` | `**/*.vue` | Limits Vue files collected at startup. |
+| `scan.exclude` | `[]` | Excludes Vue files from collection. |
+| `messageSyntax` | `vue` | Choose `vue` or `icu` for the whole project. |
+| `sfcTransform` | `locale-sources` | Controls which SFCs receive `$locale`/`$l` bindings. `locale-sources` transforms only SFCs with `<locale>` or `defineInternationalization()`, while `all` transforms every SFC. |
+| `localizerDocumentation` | `true` | Controls `$l` JSDoc generation for Volar hover text. |
 
 See the generated [API Reference](../api.md#vueinternationalizationoptions) for the full `VueInternationalizationOptions` type.
 
