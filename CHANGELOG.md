@@ -2,7 +2,7 @@
 
 ### Changes
 
--
+- fix: Avoid duplicating detailed global `env` dictionary types into every Vite-transformed SFC.
 
 
 ## 0.5.0

@@ -191,8 +191,8 @@ export function injectLocaleBinding(code: string, types: LocaleBindingTypes = {}
 	const shouldInjectTypes = setupOpenTag
 		? isTypeScriptScript(setupOpenTag)
 		: !scriptOpenTag || isTypeScriptScript(scriptOpenTag);
-	const typeParameters = shouldInjectTypes ? createUseLocaleTypeParameters(types) : '';
-	const localizerType = shouldInjectTypes ? ` as ${createLocalizerRefType(types)}` : '';
+	const typeParameters = shouldInjectTypes ? createUseLocaleTypeParameters(types, { global: 'runtime' }) : '';
+	const localizerType = shouldInjectTypes ? ` as ${createLocalizerRefType(types, { global: 'runtime' })}` : '';
 	const injection = [
 		'',
 		'import { useLocale as __useLocale, useLocalizer as __useLocalizer } from "virtual:vite-vue-internationalization";',

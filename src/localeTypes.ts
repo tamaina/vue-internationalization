@@ -9,13 +9,16 @@ export type LocaleBindingTypes = {
 	messageSyntax?: LocaleMessageSyntax;
 	transformAll?: boolean;
 };
+export type LocaleBindingTypeOptions = {
+	global?: 'detailed' | 'runtime';
+};
 
-export function createUseLocaleTypeParameters(types: LocaleBindingTypes): string {
+export function createUseLocaleTypeParameters(types: LocaleBindingTypes, options: LocaleBindingTypeOptions = {}): string {
 	if (!types.global && !types.module) {
 		return '';
 	}
 
-	return `<${toTypeLiteral(types.global ?? {})}, ${toTypeLiteral(types.module ?? {})}>`;
+	return `<${toGlobalLocaleType(types, options)}, ${toTypeLiteral(types.module ?? {})}>`;
 }
 
 export function createLocaleScopeType(types: LocaleBindingTypes): string {
@@ -34,12 +37,12 @@ export function createLocaleConstRefType(types: LocaleBindingTypes): string {
 	return `Readonly<import("vue").ComputedRef<${createLocaleConstScopeType(types)}>>`;
 }
 
-export function createLocalizerScopeType(types: LocaleBindingTypes): string {
-	return `{ env: ${toLocalizerTypeLiteral(types.global ?? {}, types.messageSyntax ?? 'vue')}; sfc: ${toLocalizerTypeLiteral(types.module ?? {}, types.messageSyntax ?? 'vue')}; }`;
+export function createLocalizerScopeType(types: LocaleBindingTypes, options: LocaleBindingTypeOptions = {}): string {
+	return `{ env: ${toGlobalLocalizerType(types, options)}; sfc: ${toLocalizerTypeLiteral(types.module ?? {}, types.messageSyntax ?? 'vue')}; }`;
 }
 
-export function createLocalizerRefType(types: LocaleBindingTypes): string {
-	return `Readonly<import("vue").ComputedRef<${createLocalizerScopeType(types)}>>`;
+export function createLocalizerRefType(types: LocaleBindingTypes, options: LocaleBindingTypeOptions = {}): string {
+	return `Readonly<import("vue").ComputedRef<${createLocalizerScopeType(types, options)}>>`;
 }
 
 export function createComponentLocaleType(types: LocaleBindingTypes): string {
@@ -61,6 +64,22 @@ export function createLocalizerDocumentationRefType(types: LocaleBindingTypes): 
 export function toTypeLiteral(dictionary: LocaleDictionary): string {
 	const entries = Object.entries(dictionary).map(([key, value]) => `${toPropertyName(key)}: ${toType(value)};`);
 	return entries.length === 0 ? '{}' : `{ ${entries.join(' ')} }`;
+}
+
+function toGlobalLocaleType(types: LocaleBindingTypes, options: LocaleBindingTypeOptions): string {
+	if (options.global === 'runtime' && types.global) {
+		return 'import("vite-vue-internationalization/runtime").RuntimeLocaleDictionary';
+	}
+
+	return toTypeLiteral(types.global ?? {});
+}
+
+function toGlobalLocalizerType(types: LocaleBindingTypes, options: LocaleBindingTypeOptions): string {
+	if (options.global === 'runtime' && types.global) {
+		return 'import("vite-vue-internationalization/runtime").LocaleLocalizerDictionary';
+	}
+
+	return toLocalizerTypeLiteral(types.global ?? {}, types.messageSyntax ?? 'vue');
 }
 
 function toType(value: LocaleValue): string {

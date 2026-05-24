@@ -30,6 +30,8 @@ To get types in VS Code and `vue-tsc`, configuring it in the Vite root `tsconfig
 | `sfcTransform` | `locale-sources` | Controls which SFCs receive `$locale`/`$l` bindings. `locale-sources` transforms only SFCs with `<locale>` or `defineInternationalization()`, while `all` transforms every SFC. |
 | `localizerDocumentation` | `true` | Controls `$l` JSDoc generation for Volar hover text. |
 
+Vite transform output uses broad runtime types for `$locale.env` and `$l.env` so large global dictionary types are not duplicated into every transformed SFC. Vue Language Tools / Volar still uses detailed global dictionary types for editor completion and `vue-tsc`.
+
 See the generated [API Reference](../api.md#vueinternationalizationoptions) for the full `VueInternationalizationOptions` type.
 
 Related API:

@@ -70,6 +70,7 @@ describe('volar plugin', () => {
 
 		expect(scriptCode).not.toContain('interface ComponentCustomProperties');
 		expect(scriptCode).toContain('declare const $locale: Readonly<import("vue").ComputedRef<import("vite-vue-internationalization/runtime").LocaleScope<');
+		expect(scriptCode).toContain('{ fuga: "bar"; }');
 		expect(scriptCode).toContain('{ hoge: "ほげ"; count: "{n} 個"; }>>>');
 		expect(scriptCode).toContain('declare const $l: Readonly<import("vue").ComputedRef<{ env:');
 		expect(scriptCode).toContain('* $l.sfc.count({ n })');

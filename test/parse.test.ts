@@ -58,8 +58,8 @@ describe('locale SFC parsing', () => {
 			transformAll: true,
 		});
 
-		expect(output).toContain('const $locale = __useLocale<{ title: string; }, {}>(import.meta.url);');
-		expect(output).toContain('const $l = __useLocalizer(import.meta.url) as Readonly<import("vue").ComputedRef<{ env: { title: () => string; }; sfc: import("vite-vue-internationalization/runtime").LocaleLocalizerDictionary; }>>;');
+		expect(output).toContain('const $locale = __useLocale<import("vite-vue-internationalization/runtime").RuntimeLocaleDictionary, {}>(import.meta.url);');
+		expect(output).toContain('const $l = __useLocalizer(import.meta.url) as Readonly<import("vue").ComputedRef<{ env: import("vite-vue-internationalization/runtime").LocaleLocalizerDictionary; sfc: import("vite-vue-internationalization/runtime").LocaleLocalizerDictionary; }>>;');
 		expect(output).toContain('$locale: __createComponentLocale<{}>(import.meta.url)');
 		expect(output).toContain('$l: __createComponentLocalizer(import.meta.url)');
 	});
@@ -151,8 +151,10 @@ describe('locale SFC parsing', () => {
 			},
 		});
 
-		expect(output).toContain('const $locale = __useLocale<{ fuga: string; }, { hoge: string; nested: { count: number; }; }>');
-		expect(output).toContain('const $l = __useLocalizer(import.meta.url) as Readonly<import("vue").ComputedRef<{ env: { fuga: () => string; }; sfc: { hoge: () => string; nested: { count: () => string; }; }; }>>;');
+		expect(output).toContain('const $locale = __useLocale<import("vite-vue-internationalization/runtime").RuntimeLocaleDictionary, { hoge: string; nested: { count: number; }; }>');
+		expect(output).toContain('const $l = __useLocalizer(import.meta.url) as Readonly<import("vue").ComputedRef<{ env: import("vite-vue-internationalization/runtime").LocaleLocalizerDictionary; sfc: { hoge: () => string; nested: { count: () => string; }; }; }>>;');
+		expect(output).not.toContain('{ fuga: string; }');
+		expect(output).not.toContain('env: { fuga: () => string; };');
 	});
 
 	it('merges multiple blocks for the primary locale with later blocks taking precedence', () => {
@@ -239,7 +241,8 @@ describe('locale SFC parsing', () => {
 			},
 		});
 
-		expect(output).toContain('env: { greeting: import("vite-vue-internationalization/runtime").LocaleMessageFunction; };');
+		expect(output).toContain('env: import("vite-vue-internationalization/runtime").LocaleLocalizerDictionary;');
+		expect(output).not.toContain('env: { greeting: import("vite-vue-internationalization/runtime").LocaleMessageFunction; };');
 	});
 
 	it('extracts script-defined locale messages', () => {

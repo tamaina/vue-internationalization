@@ -40,6 +40,8 @@ By default, the Vite plugin transforms Vue SFC files (`.vue`) that contain `<loc
 
 When `sfcTransform: 'all'` is configured, the Vite plugin injects `$locale` and `$l` into every Vue SFC. This is intended for projects that need `$locale.env` or `$l.env` global dictionary access from SFCs that do not own local messages.
 
+Generated Vite transform code intentionally uses broad runtime types for `$locale.env` and `$l.env` to avoid duplicating large global dictionary type literals across every transformed SFC. The Volar plugin still uses detailed global dictionary types for editor and `vue-tsc` checking.
+
 Plain `.ts` modules are not SFC transform targets. Do not assume `$locale` or `$l` is available in ordinary TypeScript modules. For non-SFC code, pass translated values in from Vue code or use an installed runtime instance through the public runtime APIs where appropriate.
 
 Do not add empty `defineInternationalization({ 'ja-JP': {} })` calls to every SFC just to force VVI transformation. That is a workaround, not intended usage. It can inject unnecessary bindings and component options, broaden `inline-chunks` localization, duplicate more chunks than needed, and obscure which components actually own messages.
