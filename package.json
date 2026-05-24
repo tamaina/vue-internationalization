@@ -1,6 +1,6 @@
 {
   "name": "vite-vue-internationalization",
-  "version": "0.1.1",
+  "version": "0.2.0-alpha.0",
   "description": "A Vite plugin for typed Vue SFC translations with SFC custom blocks and inline locale chunks",
   "type": "module",
   "packageManager": "pnpm@11.3.0",
