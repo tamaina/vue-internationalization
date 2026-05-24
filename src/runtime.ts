@@ -61,6 +61,11 @@ export type LocaleLocalizerScope = {
 export interface LocaleLocalizerDictionary {
 	[key: string]: LocaleTemplateFunction | LocaleMessageFunction | LocaleLocalizerDictionary;
 }
+/** Permissive runtime localizer dictionary for large untyped global message sets. */
+export interface RuntimeLocaleLocalizerDictionary {
+	(values?: LocaleTemplateValues | LocaleTemplateValue[] | number, plural?: number): string;
+	[key: string]: RuntimeLocaleLocalizerDictionary;
+}
 
 /** Locale payload loaded for one locale. */
 export type LocaleBundle = {

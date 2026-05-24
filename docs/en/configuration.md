@@ -28,9 +28,10 @@ To get types in VS Code and `vue-tsc`, configuring it in the Vite root `tsconfig
 | `scan.exclude` | `[]` | Excludes Vue files from collection. |
 | `messageSyntax` | `vue` | Choose `vue` or `icu` for the whole project. |
 | `sfcTransform` | `locale-sources` | Controls which SFCs receive `$locale`/`$l` bindings. `locale-sources` transforms only SFCs with `<locale>` or `defineInternationalization()`, while `all` transforms every SFC. |
+| `globalType` | `detailed` | Controls Volar types for `$locale.env` and `$l.env`. Use `runtime` for very large global dictionaries to avoid expanding every key during `vue-tsc`. |
 | `localizerDocumentation` | `true` | Controls `$l` JSDoc generation for Volar hover text. |
 
-Vite transform output uses broad runtime types for `$locale.env` and `$l.env` so large global dictionary types are not duplicated into every transformed SFC. Vue Language Tools / Volar still uses detailed global dictionary types for editor completion and `vue-tsc`.
+Vite transform output uses broad runtime types for `$locale.env` and `$l.env` so large global dictionary types are not duplicated into every transformed SFC. Vue Language Tools / Volar uses detailed global dictionary types by default for editor completion and `vue-tsc`; set `globalType: "runtime"` when the global dictionary is too large for type checking.
 
 See the generated [API Reference](../api.md#vueinternationalizationoptions) for the full `VueInternationalizationOptions` type.
 

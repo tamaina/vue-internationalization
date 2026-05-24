@@ -59,7 +59,7 @@ describe('locale SFC parsing', () => {
 		});
 
 		expect(output).toContain('const $locale = __useLocale<import("vite-vue-internationalization/runtime").RuntimeLocaleDictionary, {}>(import.meta.url);');
-		expect(output).toContain('const $l = __useLocalizer(import.meta.url) as Readonly<import("vue").ComputedRef<{ env: import("vite-vue-internationalization/runtime").LocaleLocalizerDictionary; sfc: import("vite-vue-internationalization/runtime").LocaleLocalizerDictionary; }>>;');
+		expect(output).toContain('const $l = __useLocalizer(import.meta.url) as Readonly<import("vue").ComputedRef<{ env: import("vite-vue-internationalization/runtime").RuntimeLocaleLocalizerDictionary; sfc: import("vite-vue-internationalization/runtime").LocaleLocalizerDictionary; }>>;');
 		expect(output).toContain('$locale: __createComponentLocale<{}>(import.meta.url)');
 		expect(output).toContain('$l: __createComponentLocalizer(import.meta.url)');
 	});
@@ -171,7 +171,7 @@ describe('locale SFC parsing', () => {
 		});
 
 		expect(output).toContain('const $locale = __useLocale<import("vite-vue-internationalization/runtime").RuntimeLocaleDictionary, { hoge: string; nested: { count: number; }; }>');
-		expect(output).toContain('const $l = __useLocalizer(import.meta.url) as Readonly<import("vue").ComputedRef<{ env: import("vite-vue-internationalization/runtime").LocaleLocalizerDictionary; sfc: { hoge: () => string; nested: { count: () => string; }; }; }>>;');
+		expect(output).toContain('const $l = __useLocalizer(import.meta.url) as Readonly<import("vue").ComputedRef<{ env: import("vite-vue-internationalization/runtime").RuntimeLocaleLocalizerDictionary; sfc: { hoge: () => string; nested: { count: () => string; }; }; }>>;');
 		expect(output).not.toContain('{ fuga: string; }');
 		expect(output).not.toContain('env: { fuga: () => string; };');
 	});
@@ -260,7 +260,7 @@ describe('locale SFC parsing', () => {
 			},
 		});
 
-		expect(output).toContain('env: import("vite-vue-internationalization/runtime").LocaleLocalizerDictionary;');
+		expect(output).toContain('env: import("vite-vue-internationalization/runtime").RuntimeLocaleLocalizerDictionary;');
 		expect(output).not.toContain('env: { greeting: import("vite-vue-internationalization/runtime").LocaleMessageFunction; };');
 	});
 
