@@ -1,4 +1,4 @@
-name: Publish to npm
+name: Stage package on npm
 
 on:
   release:
@@ -9,7 +9,7 @@ permissions:
   id-token: write
 
 jobs:
-  publish:
+  stage:
     environment: npm-publish
     runs-on: ubuntu-latest
     steps:
@@ -24,6 +24,8 @@ jobs:
           node-version: 24.16.0
           cache: pnpm
           registry-url: https://registry.npmjs.org
+
+      - run: npm install -g npm@11.15.0
 
       - run: pnpm install --frozen-lockfile
 
@@ -64,9 +66,9 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Publish
+      - name: Stage publish
         if: steps.npm.outputs.exists != 'true'
-        run: npm publish --tag "${{ steps.npm_tag.outputs.tag }}"
+        run: npm stage publish --tag "${{ steps.npm_tag.outputs.tag }}"
 
       - name: Skip existing version
         if: steps.npm.outputs.exists == 'true'
