@@ -32,7 +32,8 @@
     "dist",
     "docs/api.md",
     "docs/en/**/*.md",
-    "llms.txt"
+    "llms.txt",
+    "README.md"
   ],
   "publishConfig": {
     "access": "public"
