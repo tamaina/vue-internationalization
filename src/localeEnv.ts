@@ -132,12 +132,7 @@ export function expandLocaleEnvSources(root: string, source: string | string[]):
 }
 
 function expandLocaleEnvSource(root: string, source: string): string[] {
-	const normalizedRoot = normalizePath(resolve(root));
 	const pattern = normalizePath(isAbsolute(source) ? source : resolve(root, source));
-
-	if (!isInsideRoot(pattern, normalizedRoot)) {
-		throw new Error(`Locale env source "${source}" must resolve inside ${root}.`);
-	}
 
 	if (!hasGlob(pattern)) {
 		return [pattern];
@@ -157,10 +152,6 @@ function isPlainDictionary(value: unknown): value is LocaleDictionary {
 
 function isUnsafeDictionaryKey(key: string): boolean {
 	return key === '__proto__' || key === 'prototype' || key === 'constructor';
-}
-
-function isInsideRoot(path: string, root: string): boolean {
-	return path === root || path.startsWith(`${root}/`);
 }
 
 function hasGlob(value: string): boolean {

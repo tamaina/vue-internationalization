@@ -140,10 +140,14 @@ describe('virtual module generation', () => {
 		}
 	});
 
-	it('rejects env dictionary paths outside the project root', () => {
+	it('resolves env dictionary paths outside the project root', () => {
 		const root = mkdtempSync(join(tmpdir(), 'vite-vue-internationalization-'));
+		const outside = join(root, '../outside.yaml');
+		writeFileSync(outside, 'title: outside\n');
 
-		expect(() => internals.loadLocaleEnvDictionary(root, 'ja-JP', '../outside.yaml')).toThrow('must resolve inside');
+		expect(internals.loadLocaleEnvDictionary(root, 'ja-JP', '../outside.yaml')).toEqual({
+			title: 'outside',
+		});
 	});
 
 	it('rejects unsafe locale dictionary keys', () => {
