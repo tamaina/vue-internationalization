@@ -1,12 +1,17 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import ts from 'typescript';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { createParsedCommandLine, createVueLanguagePlugin, forEachEmbeddedCode, getDefaultCompilerOptions } from '@vue/language-core';
 import vueInternationalizationVolar from '../src/volar.js';
 
 describe('volar plugin', () => {
+	beforeAll(() => {
+		ensureVolarRequireExportBuild();
+	});
+
 	it('can be loaded from vueCompilerOptions.plugins via require export', () => {
 		const parsed = createParsedCommandLine(ts, {
 			fileExists: ts.sys.fileExists,
@@ -318,6 +323,23 @@ describe('volar plugin', () => {
 		expect(diagnostics.some((message) => message.includes('@:env.globalTarget'))).toBe(false);
 	});
 });
+
+function ensureVolarRequireExportBuild(): void {
+	if (
+		existsSync(resolve('dist/volar.cjs')) &&
+		existsSync(resolve('dist/localeTypes.cjs')) &&
+		existsSync(resolve('dist/parse.cjs')) &&
+		existsSync(resolve('dist/message.js')) &&
+		existsSync(resolve('dist/localeEnv.js')) &&
+		existsSync(resolve('dist/scriptSetup.js'))
+	) {
+		return;
+	}
+
+	execFileSync('pnpm', ['exec', 'tsc', '-p', 'tsconfig.build.json'], { stdio: 'inherit' });
+	execFileSync('pnpm', ['exec', 'tsc', '-p', 'tsconfig.volar-cjs.json'], { stdio: 'inherit' });
+	execFileSync('node', ['scripts/build-volar-cjs.mjs'], { stdio: 'inherit' });
+}
 
 function withConfig(
 	plugin: typeof vueInternationalizationVolar,
