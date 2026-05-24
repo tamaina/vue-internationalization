@@ -86,7 +86,7 @@ Set `sfcTransform: "all"` when SFCs without `<locale>` blocks or `defineInternat
 }
 ```
 
-Vite build output keeps global `env` bindings as broad runtime dictionary types to avoid duplicating large global type literals in every transformed SFC. Vue Language Tools / Volar still uses the detailed global dictionary types for editor completion and `vue-tsc`.
+Vite transform output keeps global `env` bindings as broad runtime dictionary types to avoid duplicating large global type literals in every transformed SFC. Vue Language Tools / Volar still uses the detailed global dictionary types for editor completion and `vue-tsc`.
 
 ```ts
 // src/env.d.ts
