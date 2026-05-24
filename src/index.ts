@@ -7,6 +7,7 @@ export type {
 export {
 	compileLocaleMessage,
 	formatLocaleMessage,
+	getLocaleMessageLinkedKeys,
 	getLocaleMessageListIndexes,
 	getLocaleMessageNamedKeys,
 	hasLocaleMessagePlural,

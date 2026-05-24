@@ -2,7 +2,7 @@
   "name": "vite-vue-internationalization",
   "version": "0.0.0",
   "type": "module",
-  "private": true,
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -20,7 +20,8 @@
       "types": "./dist/volar.d.ts",
       "require": "./dist/volar.cjs",
       "import": "./dist/volar.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist"
@@ -45,6 +46,7 @@
   "dependencies": {
     "@formatjs/icu-messageformat-parser": "^3.5.10",
     "@vue/compiler-sfc": "^3.5.24",
+    "@vue/language-core": "^3.3.1",
     "acorn": "^8.16.0",
     "estree-walker": "^3.0.3",
     "intl-messageformat": "^11.2.7",
@@ -62,7 +64,6 @@
     "@typescript-eslint/eslint-plugin": "^8.59.4",
     "@typescript-eslint/parser": "^8.59.4",
     "@vitejs/plugin-vue": "^6.0.2",
-    "@vue/language-core": "^3.3.1",
     "eslint": "^9.39.4",
     "eslint-plugin-import": "^2.32.0",
     "globals": "^17.6.0",
