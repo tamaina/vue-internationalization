@@ -98,7 +98,7 @@ function mergeLocaleEnvDictionary(
 		}
 
 		if (Object.prototype.hasOwnProperty.call(target, key)) {
-			console.warn(`[vue-internationalization] Duplicate env key "${currentPath.join('.')}" in ${sourceLabel}; overwriting previous value.`);
+			console.warn(`[vite-vue-internationalization] Duplicate env key "${currentPath.join('.')}" in ${sourceLabel}; overwriting previous value.`);
 		}
 
 		target[key] = value;

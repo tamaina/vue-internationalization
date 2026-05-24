@@ -18,7 +18,7 @@ export function createUseLocaleTypeParameters(types: LocaleBindingTypes): string
 }
 
 export function createLocaleScopeType(types: LocaleBindingTypes): string {
-	return `import("vue-internationalization/runtime").LocaleScope<${toTypeLiteral(types.global ?? {})}, ${toTypeLiteral(types.module ?? {})}>`;
+	return `import("vite-vue-internationalization/runtime").LocaleScope<${toTypeLiteral(types.global ?? {})}, ${toTypeLiteral(types.module ?? {})}>`;
 }
 
 export function createLocaleRefType(types: LocaleBindingTypes): string {
@@ -26,7 +26,7 @@ export function createLocaleRefType(types: LocaleBindingTypes): string {
 }
 
 export function createLocaleConstScopeType(types: LocaleBindingTypes): string {
-	return `import("vue-internationalization/runtime").LocaleScope<${toConstTypeLiteral(types.global ?? {})}, ${toConstTypeLiteral(types.module ?? {})}>`;
+	return `import("vite-vue-internationalization/runtime").LocaleScope<${toConstTypeLiteral(types.global ?? {})}, ${toConstTypeLiteral(types.module ?? {})}>`;
 }
 
 export function createLocaleConstRefType(types: LocaleBindingTypes): string {
@@ -64,7 +64,7 @@ export function toTypeLiteral(dictionary: LocaleDictionary): string {
 
 function toType(value: LocaleValue): string {
 	if (typeof value === 'function') {
-		return 'import("vue-internationalization/runtime").LocaleMessageFunction';
+		return 'import("vite-vue-internationalization/runtime").LocaleMessageFunction';
 	}
 
 	if (typeof value === 'string') {
@@ -98,7 +98,7 @@ function toConstTypeLiteral(dictionary: LocaleDictionary): string {
 
 function toConstType(value: LocaleValue): string {
 	if (typeof value === 'function') {
-		return 'import("vue-internationalization/runtime").LocaleMessageFunction';
+		return 'import("vite-vue-internationalization/runtime").LocaleMessageFunction';
 	}
 
 	if (typeof value === 'string') {
@@ -119,7 +119,7 @@ function toConstType(value: LocaleValue): string {
 
 function toLocalizerTypeLiteral(dictionary: LocaleDictionary, messageSyntax: LocaleMessageSyntax): string {
 	const entries = Object.entries(dictionary).map(([key, value]) => `${toPropertyName(key)}: ${toLocalizerType(value, messageSyntax)};`);
-	return entries.length === 0 ? 'import("vue-internationalization/runtime").LocaleLocalizerDictionary' : `{ ${entries.join(' ')} }`;
+	return entries.length === 0 ? 'import("vite-vue-internationalization/runtime").LocaleLocalizerDictionary' : `{ ${entries.join(' ')} }`;
 }
 
 function toLocalizerType(value: LocaleValue, messageSyntax: LocaleMessageSyntax): string {
@@ -128,7 +128,7 @@ function toLocalizerType(value: LocaleValue, messageSyntax: LocaleMessageSyntax)
 	}
 
 	if (typeof value === 'function') {
-		return 'import("vue-internationalization/runtime").LocaleMessageFunction';
+		return 'import("vite-vue-internationalization/runtime").LocaleMessageFunction';
 	}
 
 	return toLocaleTemplateFunctionType(value, messageSyntax);
@@ -141,7 +141,7 @@ function toLocalizerDocumentationTypeLiteral(dictionary: LocaleDictionary, path:
 		return `${documentation}${toPropertyName(key)}: ${toLocalizerDocumentationType(value, currentPath, messageSyntax)};`;
 	});
 
-	return entries.length === 0 ? 'import("vue-internationalization/runtime").LocaleLocalizerDictionary' : `{\n${entries.join('\n')}\n}`;
+	return entries.length === 0 ? 'import("vite-vue-internationalization/runtime").LocaleLocalizerDictionary' : `{\n${entries.join('\n')}\n}`;
 }
 
 function toLocalizerDocumentationType(value: LocaleValue, path: string[], messageSyntax: LocaleMessageSyntax): string {
@@ -150,7 +150,7 @@ function toLocalizerDocumentationType(value: LocaleValue, path: string[], messag
 	}
 
 	if (typeof value === 'function') {
-		return 'import("vue-internationalization/runtime").LocaleMessageFunction';
+		return 'import("vite-vue-internationalization/runtime").LocaleMessageFunction';
 	}
 
 	return toLocaleTemplateFunctionType(value, messageSyntax);
@@ -176,7 +176,7 @@ function toLocalizerExampleArguments(value: string): string {
 
 function toLocaleTemplateFunctionType(value: LocaleValue, messageSyntax: LocaleMessageSyntax): string {
 	if (typeof value === 'function') {
-		return 'import("vue-internationalization/runtime").LocaleMessageFunction';
+		return 'import("vite-vue-internationalization/runtime").LocaleMessageFunction';
 	}
 
 	const keys = typeof value === 'string' ? getLocaleMessageNamedKeys(value, messageSyntax) : [];
@@ -186,7 +186,7 @@ function toLocaleTemplateFunctionType(value: LocaleValue, messageSyntax: LocaleM
 
 	if (keys.length === 0) {
 		if (indexes.length > 0) {
-			return `(values: import("vue-internationalization/runtime").LocaleTemplateValue[]${hasPlural ? ', plural?: number' : ''}) => string`;
+			return `(values: import("vite-vue-internationalization/runtime").LocaleTemplateValue[]${hasPlural ? ', plural?: number' : ''}) => string`;
 		}
 
 		if (usesIcu) {
@@ -196,7 +196,7 @@ function toLocaleTemplateFunctionType(value: LocaleValue, messageSyntax: LocaleM
 		return hasPlural ? '(plural: number) => string' : '() => string';
 	}
 
-	return `(values: { ${keys.map((key) => `${toPropertyName(key)}: import("vue-internationalization/runtime").LocaleTemplateValue;`).join(' ')} }${hasPlural && !usesIcu ? ', plural?: number' : ''}) => string`;
+	return `(values: { ${keys.map((key) => `${toPropertyName(key)}: import("vite-vue-internationalization/runtime").LocaleTemplateValue;`).join(' ')} }${hasPlural && !usesIcu ? ', plural?: number' : ''}) => string`;
 }
 
 function toLocalizerAccessPath(path: string[]): string {

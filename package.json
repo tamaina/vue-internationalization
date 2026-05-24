@@ -1,5 +1,5 @@
 {
-  "name": "vue-internationalization",
+  "name": "vite-vue-internationalization",
   "version": "0.0.0",
   "type": "module",
   "private": true,
@@ -27,6 +27,13 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json && cp src/virtual.d.ts dist/virtual.d.ts && tsc -p tsconfig.volar-cjs.json && node scripts/build-volar-cjs.mjs",
+    "docs:api": "typedoc && node scripts/build-api-docs.mjs",
+    "docs:build": "pnpm docs:prepare && pnpm docs:api && vitepress build docs",
+    "docs:dev": "pnpm docs:prepare && pnpm docs:api && vitepress dev docs",
+    "docs:prepare": "node scripts/prepare-vitepress.mjs",
+    "docs:preview": "pnpm docs:prepare && vitepress preview docs",
+    "example:icu": "pnpm build && pnpm --filter ./examples/icu dev",
+    "example:vue": "pnpm build && pnpm --filter ./examples/vue dev",
     "lint": "eslint .",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
@@ -59,7 +66,10 @@
     "eslint": "^9.39.4",
     "eslint-plugin-import": "^2.32.0",
     "globals": "^17.6.0",
+    "typedoc": "^0.28.19",
+    "typedoc-plugin-markdown": "^4.11.0",
     "vite": "^7.2.4",
+    "vitepress": "^1.6.4",
     "vitest": "^4.0.13",
     "vue": "^3.5.24"
   }

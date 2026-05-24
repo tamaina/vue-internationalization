@@ -1,5 +1,5 @@
 <script lang="ts">
-import { defineInternationalization } from 'virtual:vue-internationalization';
+import { defineInternationalization } from 'virtual:vite-vue-internationalization';
 
 defineInternationalization({
 	'ja-JP': {
@@ -19,7 +19,7 @@ defineInternationalization({
 
 <script setup lang="ts">
 import { computed, defineAsyncComponent, ref } from 'vue';
-import { currentLocale, primaryLocale } from 'virtual:vue-internationalization';
+import { currentLocale, primaryLocale } from 'virtual:vite-vue-internationalization';
 import StaticPanel from './components/StaticPanel.vue';
 import Messages from './messages.vue';
 

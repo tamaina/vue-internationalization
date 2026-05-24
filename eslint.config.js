@@ -5,6 +5,9 @@ export default [
 		ignores: [
 			'dist/**',
 			'examples/*/dist/**',
+			'docs/.vitepress/**',
+			'docs/.typedoc-api/**',
+			'.vitepress/**',
 			'node_modules/**',
 			'.volar-cjs-build/**',
 		],

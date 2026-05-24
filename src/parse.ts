@@ -195,7 +195,7 @@ export function injectLocaleBinding(code: string, types: LocaleBindingTypes = {}
 	const localizerType = shouldInjectTypes ? ` as ${createLocalizerRefType(types)}` : '';
 	const injection = [
 		'',
-		'import { useLocale as __useLocale, useLocalizer as __useLocalizer } from "virtual:vue-internationalization";',
+		'import { useLocale as __useLocale, useLocalizer as __useLocalizer } from "virtual:vite-vue-internationalization";',
 		`const $locale = __useLocale${typeParameters}(import.meta.url);`,
 		`const $l = __useLocalizer(import.meta.url)${localizerType};`,
 		'',
@@ -285,7 +285,7 @@ export function injectComponentLocaleOptions(
 		? isTypeScriptScript(scriptOpenTag)
 		: !setupOpenTag || isTypeScriptScript(setupOpenTag);
 	const scriptLangAttribute = scriptOpenTag ? '' : getScriptLangAttribute(setupOpenTag) ?? (shouldInjectTypes ? ' lang="ts"' : '');
-	const importLine = options.importLine ?? 'import { createComponentLocale as __createComponentLocale, createComponentLocalizer as __createComponentLocalizer } from "virtual:vue-internationalization";';
+	const importLine = options.importLine ?? 'import { createComponentLocale as __createComponentLocale, createComponentLocalizer as __createComponentLocalizer } from "virtual:vite-vue-internationalization";';
 	const localeExpression = options.localeExpression ?? (shouldInjectTypes ? `__createComponentLocale<${localeType}>(import.meta.url)` : '__createComponentLocale(import.meta.url)');
 	const localizerExpression = options.localizerExpression ?? (shouldInjectTypes ? `__createComponentLocalizer(import.meta.url) as ${localizerType}` : '__createComponentLocalizer(import.meta.url)');
 	const importSection = importLine.length > 0 ? `${importLine}\n\n` : '';
@@ -496,7 +496,7 @@ function transpileScriptExpression(source: string): string {
 			target: ts.ScriptTarget.ES2020,
 			module: ts.ModuleKind.ESNext,
 		},
-		fileName: 'vue-internationalization-message.ts',
+		fileName: 'vite-vue-internationalization-message.ts',
 	}).outputText.trim();
 	const prefix = 'const __message = ';
 	const start = output.indexOf(prefix);

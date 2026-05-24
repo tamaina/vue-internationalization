@@ -10,6 +10,7 @@
 		"src",
 		"test",
 		"vitest.config.ts",
+		"docs/vitepress.config.ts",
 		"examples/*/src/**/*.ts",
 		"examples/*/vite.config.ts"
 	]

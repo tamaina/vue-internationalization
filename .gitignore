@@ -1,4 +1,8 @@
 node_modules/
 dist/
 examples/*/dist/
+docs/.vitepress/
+docs/.typedoc-api/
+docs/api.md
+.vitepress/
 .vite/

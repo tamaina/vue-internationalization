@@ -1,5 +1,5 @@
 import { createApp } from 'vue';
-import { createInternationalization } from 'virtual:vue-internationalization';
+import { createInternationalization } from 'virtual:vite-vue-internationalization';
 import App from './App.vue';
 
 const app = createApp(App);

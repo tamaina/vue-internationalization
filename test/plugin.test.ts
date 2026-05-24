@@ -8,12 +8,12 @@ import { internals } from '../src/plugin.js';
 
 describe('virtual module generation', () => {
 	it('resolves plugin options from tsconfig vueCompilerOptions', () => {
-		const root = mkdtempSync(join(tmpdir(), 'vue-internationalization-'));
+		const root = mkdtempSync(join(tmpdir(), 'vite-vue-internationalization-'));
 		writeFileSync(join(root, 'tsconfig.json'), JSON.stringify({
 			vueCompilerOptions: {
 				plugins: [
 					{
-						name: 'vue-internationalization/volar',
+						name: 'vite-vue-internationalization/volar',
 						primaryLocale: 'ja-JP',
 						buildStrategy: 'inline-chunks',
 						messageSyntax: 'icu',
@@ -44,13 +44,13 @@ describe('virtual module generation', () => {
 	});
 
 	it('resolves plugin options from jsonc tsconfig', () => {
-		const root = mkdtempSync(join(tmpdir(), 'vue-internationalization-'));
+		const root = mkdtempSync(join(tmpdir(), 'vite-vue-internationalization-'));
 		writeFileSync(join(root, 'tsconfig.json'), `{
 			// Vue Language Tools reads this block.
 			"vueCompilerOptions": {
 				"plugins": [
 					{
-						"name": "vue-internationalization/volar",
+						"name": "vite-vue-internationalization/volar",
 						"primaryLocale": "ja-JP",
 					},
 				],
@@ -66,12 +66,12 @@ describe('virtual module generation', () => {
 	});
 
 	it('prefers explicit Vite plugin options over tsconfig values', () => {
-		const root = mkdtempSync(join(tmpdir(), 'vue-internationalization-'));
+		const root = mkdtempSync(join(tmpdir(), 'vite-vue-internationalization-'));
 		writeFileSync(join(root, 'tsconfig.json'), JSON.stringify({
 			vueCompilerOptions: {
 				plugins: [
 					{
-						name: 'vue-internationalization/volar',
+						name: 'vite-vue-internationalization/volar',
 						primaryLocale: 'ja-JP',
 					},
 				],
@@ -89,7 +89,7 @@ describe('virtual module generation', () => {
 	});
 
 	it('scans Vue files with include and exclude patterns', () => {
-		const root = mkdtempSync(join(tmpdir(), 'vue-internationalization-'));
+		const root = mkdtempSync(join(tmpdir(), 'vite-vue-internationalization-'));
 		mkdirSync(join(root, 'src/features'), { recursive: true });
 		mkdirSync(join(root, 'src/legacy'), { recursive: true });
 		mkdirSync(join(root, 'docs'), { recursive: true });
@@ -108,7 +108,7 @@ describe('virtual module generation', () => {
 	});
 
 	it('loads env dictionaries from globbed yaml files with duplicate warnings', () => {
-		const root = mkdtempSync(join(tmpdir(), 'vue-internationalization-'));
+		const root = mkdtempSync(join(tmpdir(), 'vite-vue-internationalization-'));
 		mkdirSync(join(root, 'src/locales/ja-JP'), { recursive: true });
 		writeFileSync(join(root, 'src/locales/ja-JP/base.yaml'), [
 			'fuga: base',
@@ -137,13 +137,13 @@ describe('virtual module generation', () => {
 	});
 
 	it('rejects env dictionary paths outside the project root', () => {
-		const root = mkdtempSync(join(tmpdir(), 'vue-internationalization-'));
+		const root = mkdtempSync(join(tmpdir(), 'vite-vue-internationalization-'));
 
 		expect(() => internals.loadLocaleEnvDictionary(root, 'ja-JP', '../outside.yaml')).toThrow('must resolve inside');
 	});
 
 	it('rejects unsafe locale dictionary keys', () => {
-		const root = mkdtempSync(join(tmpdir(), 'vue-internationalization-'));
+		const root = mkdtempSync(join(tmpdir(), 'vite-vue-internationalization-'));
 		mkdirSync(join(root, 'src/locales'), { recursive: true });
 		writeFileSync(join(root, 'src/locales/ja-JP.yaml'), [
 			'safe: ok',
@@ -157,7 +157,7 @@ describe('virtual module generation', () => {
 	it('generates dynamic locale loaders for chunk splitting', () => {
 		const code = internals.generateRuntimeModule('ja-JP', ['en-US', 'ja-JP']);
 
-		expect(code).toContain('() => import("virtual:vue-internationalization/locale/en-US")');
+		expect(code).toContain('() => import("virtual:vite-vue-internationalization/locale/en-US")');
 		expect(code).toContain('primaryLocale = "ja-JP"');
 		expect(code).toContain('export const currentLocale = resolveInitialLocale();');
 		expect(code).toContain('useDateTimeFormat');
@@ -169,7 +169,7 @@ describe('virtual module generation', () => {
 	it('generates inline build runtime without dynamic locale imports', () => {
 		const code = internals.generateInlineRuntimeModule('ja-JP', ['en-US', 'ja-JP']);
 
-		expect(code).not.toContain('import("virtual:vue-internationalization/locale/');
+		expect(code).not.toContain('import("virtual:vite-vue-internationalization/locale/');
 		expect(code).toContain('Promise.resolve({ global: {}, modules: {} })');
 		expect(code).toContain('export const currentLocale = resolveInitialLocale();');
 		expect(code).not.toContain('onLocaleChange');

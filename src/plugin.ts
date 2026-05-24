@@ -34,14 +34,21 @@ import type { LocaleDictionary } from './types.js';
 
 export type { LocaleDictionary };
 
+/** Locale dictionaries keyed by locale code. */
 export type LocaleMessages = Partial<Record<string, LocaleDictionary>>;
 export type { LocaleEnvSource, LocaleEnvSources };
 
+/** Options for the Vite plugin and the matching Volar plugin configuration. */
 export type VueInternationalizationOptions = {
+	/** Locale used as the source of generated TypeScript types. */
 	primaryLocale: string;
+	/** Global dictionaries keyed by locale code. */
 	global?: LocaleEnvSources;
+	/** Controls whether locale payloads are loaded as virtual chunks or inlined into locale-specific chunks. */
 	buildStrategy?: 'virtual' | 'inline-chunks';
+	/** Glob filters used when collecting Vue files at startup. */
 	scan?: ScanVueFilesOptions;
+	/** Message parser used for string messages in the whole project. */
 	messageSyntax?: LocaleMessageSyntax;
 };
 type ResolvedVueInternationalizationOptions = VueInternationalizationOptions;
@@ -56,12 +63,19 @@ type TsconfigVueCompilerPlugin = {
 
 type ModuleMessages = Partial<Record<string, LocaleMessages>>;
 
-const VIRTUAL_ID = 'virtual:vue-internationalization';
+const VIRTUAL_ID = 'virtual:vite-vue-internationalization';
 const RESOLVED_VIRTUAL_ID = `\0${VIRTUAL_ID}`;
-const LOCALE_PREFIX = 'virtual:vue-internationalization/locale/';
+const LOCALE_PREFIX = 'virtual:vite-vue-internationalization/locale/';
 const RESOLVED_LOCALE_PREFIX = `\0${LOCALE_PREFIX}`;
-const TSCONFIG_PLUGIN_NAMES = new Set(['vue-internationalization', 'vue-internationalization/volar']);
+const TSCONFIG_PLUGIN_NAMES = new Set(['vite-vue-internationalization', 'vite-vue-internationalization/volar']);
 
+/**
+ * Creates the Vite plugin that collects SFC locale blocks and script-defined
+ * dictionaries, then exposes them through `virtual:vite-vue-internationalization`.
+ *
+ * When options are omitted, the plugin reads the matching
+ * `vite-vue-internationalization/volar` entry from the Vite root `tsconfig.json`.
+ */
 export function vueInternationalization(options?: Partial<VueInternationalizationOptions>): Plugin {
 	const modules: ModuleMessages = {};
 	const globalMessages: LocaleMessages = {};
@@ -133,7 +147,7 @@ export function vueInternationalization(options?: Partial<VueInternationalizatio
 	}
 
 	return {
-		name: 'vue-internationalization',
+		name: 'vite-vue-internationalization',
 		enforce: 'pre',
 		configResolved(config) {
 			root = config.root;
@@ -261,7 +275,7 @@ function resolveOptions(root: string, options: Partial<VueInternationalizationOp
 
 	if (!merged.primaryLocale) {
 		throw new Error(
-			'vue-internationalization requires a primaryLocale. Pass vueInternationalization({ primaryLocale }) or configure vueCompilerOptions.plugins in tsconfig.json.',
+			'vite-vue-internationalization requires a primaryLocale. Pass vueInternationalization({ primaryLocale }) or configure vueCompilerOptions.plugins in tsconfig.json.',
 		);
 	}
 
@@ -333,7 +347,7 @@ function normalizeScanOption(value: unknown, sourceFile: string): ScanVueFilesOp
 	const scan = getObject(value);
 
 	if (!scan) {
-		throw new Error(`${sourceFile}: vue-internationalization scan option must be an object.`);
+		throw new Error(`${sourceFile}: vite-vue-internationalization scan option must be an object.`);
 	}
 
 	const result: ScanVueFilesOptions = {};
@@ -353,7 +367,7 @@ function normalizeGlobalOption(value: unknown, sourceFile: string): LocaleEnvSou
 	const global = getObject(value);
 
 	if (!global) {
-		throw new Error(`${sourceFile}: vue-internationalization global option must be an object.`);
+		throw new Error(`${sourceFile}: vite-vue-internationalization global option must be an object.`);
 	}
 
 	const result: LocaleEnvSources = {};
@@ -411,7 +425,7 @@ function getObject(value: unknown): Record<string, unknown> | undefined {
 
 function getResolvedOptions(options: ResolvedVueInternationalizationOptions | undefined): ResolvedVueInternationalizationOptions {
 	if (!options) {
-		throw new Error('vue-internationalization options were used before Vite config was resolved.');
+		throw new Error('vite-vue-internationalization options were used before Vite config was resolved.');
 	}
 
 	return options;
@@ -442,7 +456,7 @@ function generateRuntimeModule(primaryLocale: string, locales: string[], message
 		.join(',\n  ');
 
 	return [
-		'import { Internationalization, createComponentLocale, createComponentLocalizer, createInternationalization as __createInternationalization, defineInternationalization, setActiveInternationalization, useDateTimeFormat, useInternationalization, useLocale, useLocalizer, useNumberFormat } from "vue-internationalization/runtime";',
+		'import { Internationalization, createComponentLocale, createComponentLocalizer, createInternationalization as __createInternationalization, defineInternationalization, setActiveInternationalization, useDateTimeFormat, useInternationalization, useLocale, useLocalizer, useNumberFormat } from "vite-vue-internationalization/runtime";',
 		`export const primaryLocale = ${JSON.stringify(primaryLocale)};`,
 		`export const locales = ${JSON.stringify(locales)};`,
 		`export const localeLoaders = {\n  ${loaderEntries}\n};`,
@@ -475,7 +489,7 @@ function generateInlineRuntimeModule(primaryLocale: string, locales: string[], m
 		.join(',\n  ');
 
 	return [
-		'import { Internationalization, createComponentLocale, createComponentLocalizer, createInternationalization as __createInternationalization, defineInternationalization, setActiveInternationalization, useDateTimeFormat, useInternationalization, useLocale, useLocalizer, useNumberFormat } from "vue-internationalization/runtime";',
+		'import { Internationalization, createComponentLocale, createComponentLocalizer, createInternationalization as __createInternationalization, defineInternationalization, setActiveInternationalization, useDateTimeFormat, useInternationalization, useLocale, useLocalizer, useNumberFormat } from "vite-vue-internationalization/runtime";',
 		`export const primaryLocale = ${JSON.stringify(primaryLocale)};`,
 		`export const locales = ${JSON.stringify(locales)};`,
 		`export const localeLoaders = {\n  ${loaderEntries}\n};`,

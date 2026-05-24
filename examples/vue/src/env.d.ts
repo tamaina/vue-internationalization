@@ -1,2 +1,2 @@
 /// <reference types="vite/client" />
-/// <reference types="vue-internationalization/virtual" />
+/// <reference types="vite-vue-internationalization/virtual" />

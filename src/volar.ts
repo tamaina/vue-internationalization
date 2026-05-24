@@ -40,7 +40,7 @@ const plugin: VueLanguagePlugin<VueInternationalizationVolarPluginConfig> = ({ c
 
 	return {
 		version: 2.2,
-		name: 'vue-internationalization',
+		name: 'vite-vue-internationalization',
 		order: 1,
 		resolveEmbeddedCode(fileName, ir, embeddedFile) {
 			if (!/^script_(js|jsx|ts|tsx)$/.test(embeddedFile.id) || !hasLocaleSources(ir.content, ir.customBlocks)) {

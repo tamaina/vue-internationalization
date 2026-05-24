@@ -15,7 +15,7 @@ describe('volar plugin', () => {
 		}, 'examples/vue/tsconfig.json');
 
 		expect(parsed.vueOptions.plugins.some((plugin) =>
-			(plugin as { __moduleConfig?: { name?: string } }).__moduleConfig?.name === 'vue-internationalization/volar',
+			(plugin as { __moduleConfig?: { name?: string } }).__moduleConfig?.name === 'vite-vue-internationalization/volar',
 		)).toBe(true);
 		expect(parsed.vueOptions.plugins.some((plugin) => typeof plugin === 'function')).toBe(true);
 	});
@@ -25,7 +25,7 @@ describe('volar plugin', () => {
 		vueCompilerOptions.plugins = [
 			withConfig(vueInternationalizationVolar, {
 				__moduleConfig: {
-					name: 'vue-internationalization/volar',
+					name: 'vite-vue-internationalization/volar',
 					primaryLocale: 'ja-JP',
 					global: {
 						'ja-JP': {
@@ -64,21 +64,21 @@ describe('volar plugin', () => {
 			?.snapshot.getText(0, Number.MAX_SAFE_INTEGER);
 
 		expect(scriptCode).not.toContain('interface ComponentCustomProperties');
-		expect(scriptCode).toContain('declare const $locale: Readonly<import("vue").ComputedRef<import("vue-internationalization/runtime").LocaleScope<');
+		expect(scriptCode).toContain('declare const $locale: Readonly<import("vue").ComputedRef<import("vite-vue-internationalization/runtime").LocaleScope<');
 		expect(scriptCode).toContain('{ hoge: "ほげ"; count: "{n} 個"; }>>>');
 		expect(scriptCode).toContain('declare const $l: Readonly<import("vue").ComputedRef<{ env:');
 		expect(scriptCode).toContain('* $l.sfc.count({ n })');
 		expect(scriptCode).toContain('* $l.sfc.hoge()');
 		expect(getQuickInfo(scriptCode, '__VLS_ctx.$l.sfc.count')).toEqual({
 			documentation: 'Primary locale text:\n{n} 個',
-			display: '(property) count: (values: {\n    n: import("vue-internationalization/runtime").LocaleTemplateValue;\n}) => string',
+			display: '(property) count: (values: {\n    n: import("vite-vue-internationalization/runtime").LocaleTemplateValue;\n}) => string',
 			tags: [
 				'example: $l.sfc.count({ n })',
 			],
 		});
-		expect(scriptCode).toContain('ComponentPublicInstance & { $locale: import("vue-internationalization/runtime").LocaleScope<');
+		expect(scriptCode).toContain('ComponentPublicInstance & { $locale: import("vite-vue-internationalization/runtime").LocaleScope<');
 		expect(scriptCode).toContain('$l: { env:');
-		expect(scriptCode).toContain('export default {} as typeof __VLS_export & { $locale: { hoge: string; count: string; }; $l: { hoge: () => string; count: (values: { n: import("vue-internationalization/runtime").LocaleTemplateValue; }) => string; }; };');
+		expect(scriptCode).toContain('export default {} as typeof __VLS_export & { $locale: { hoge: string; count: string; }; $l: { hoge: () => string; count: (values: { n: import("vite-vue-internationalization/runtime").LocaleTemplateValue; }) => string; }; };');
 		expect(scriptCode).toContain('__VLS_ctx.$locale.sfc.hoge');
 		expect(scriptCode).toContain('__VLS_ctx.$l.sfc.count');
 		expect(scriptCode).toContain('// @ts-expect-error: ts-plugin(2339)\n( __VLS_ctx.$locale.sfc.noTranslation );');
@@ -90,7 +90,7 @@ describe('volar plugin', () => {
 		vueCompilerOptions.plugins = [
 			withConfig(vueInternationalizationVolar, {
 				__moduleConfig: {
-					name: 'vue-internationalization/volar',
+					name: 'vite-vue-internationalization/volar',
 					primaryLocale: 'ja-JP',
 					localizerDocumentation: false,
 				},
@@ -117,7 +117,7 @@ describe('volar plugin', () => {
 			.find((code) => code.id === 'script_ts')
 			?.snapshot.getText(0, Number.MAX_SAFE_INTEGER);
 
-		expect(scriptCode).toContain('$l: { env: import("vue-internationalization/runtime").LocaleLocalizerDictionary; sfc: { count:');
+		expect(scriptCode).toContain('$l: { env: import("vite-vue-internationalization/runtime").LocaleLocalizerDictionary; sfc: { count:');
 		expect(scriptCode).not.toContain('Primary locale text:');
 		expect(scriptCode).not.toContain('@example');
 	});
@@ -127,7 +127,7 @@ describe('volar plugin', () => {
 		vueCompilerOptions.plugins = [
 			withConfig(vueInternationalizationVolar, {
 				__moduleConfig: {
-					name: 'vue-internationalization/volar',
+					name: 'vite-vue-internationalization/volar',
 					primaryLocale: 'ja-JP',
 				},
 			}),
@@ -175,7 +175,7 @@ describe('volar plugin', () => {
 		vueCompilerOptions.plugins = [
 			withConfig(vueInternationalizationVolar, {
 				__moduleConfig: {
-					name: 'vue-internationalization/volar',
+					name: 'vite-vue-internationalization/volar',
 					primaryLocale: 'ja-JP',
 				},
 			}),
@@ -231,7 +231,7 @@ describe('volar plugin', () => {
 	});
 
 	it('keeps Vue file type injection working when a configured global locale file is invalid', () => {
-		const root = mkdtempSync(resolve(tmpdir(), 'vue-internationalization-volar-'));
+		const root = mkdtempSync(resolve(tmpdir(), 'vite-vue-internationalization-volar-'));
 		mkdirSync(resolve(root, 'locales'), { recursive: true });
 		writeFileSync(resolve(root, 'tsconfig.json'), '{}');
 		writeFileSync(resolve(root, 'locales/ja-JP.yaml'), '- broken\n');
@@ -239,7 +239,7 @@ describe('volar plugin', () => {
 		vueCompilerOptions.plugins = [
 			withConfig(vueInternationalizationVolar, {
 				__moduleConfig: {
-					name: 'vue-internationalization/volar',
+					name: 'vite-vue-internationalization/volar',
 					primaryLocale: 'ja-JP',
 					global: {
 						'ja-JP': './locales/ja-JP.yaml',
@@ -278,7 +278,7 @@ describe('volar plugin', () => {
 		vueCompilerOptions.plugins = [
 			withConfig(vueInternationalizationVolar, {
 				__moduleConfig: {
-					name: 'vue-internationalization/volar',
+					name: 'vite-vue-internationalization/volar',
 					primaryLocale: 'ja-JP',
 				},
 			}),

@@ -4,69 +4,102 @@ import type { App, ComputedRef, InjectionKey, PropType, VNodeChild } from 'vue';
 import type { LocaleMessageSyntax, LocaleMessageToken, LocaleMessageValues } from './message.js';
 import type { LocaleDictionary } from './types.js';
 
+/** Runtime dictionary shape used by locale bundles. */
 export type RuntimeLocaleDictionary = LocaleDictionary;
+/** Combined locale scope exposed to components. */
 export type LocaleScope<
 	TGlobal extends RuntimeLocaleDictionary = RuntimeLocaleDictionary,
 	TModule extends RuntimeLocaleDictionary = RuntimeLocaleDictionary,
 > = {
+	/** Global messages loaded from the plugin `global` option. */
 	env: TGlobal;
+	/** Messages owned by the current Vue SFC module. */
 	sfc: TModule;
 };
+/** Primitive value accepted by the lightweight template formatter. */
 export type LocaleTemplateValue = string | number | bigint | boolean | null | undefined | Date;
+/** Named values accepted by the lightweight template formatter. */
 export type LocaleTemplateValues = Record<string, LocaleTemplateValue>;
+/** Function signature used by generated localizers. */
 export type LocaleTemplateFunction = (values?: LocaleTemplateValues | LocaleTemplateValue[] | number, plural?: number) => string;
+/** User-provided message function signature for programmatic dictionaries. */
 export type LocaleMessageFunction<TValues = unknown> = {
 	bivarianceHack(values?: TValues, plural?: number): string;
 }['bivarianceHack'];
+/** Names of the locale scopes available at runtime. */
 export type InternationalizationScopeName = keyof LocaleScope;
+/** Values accepted by date-time formatters. */
 export type LocaleDateTimeValue = Date | number | string;
+/** Values accepted by number formatters. */
 export type LocaleNumberValue = number | bigint;
 export type LocaleDateTimeFormatOptions = Intl.DateTimeFormatOptions;
 export type LocaleNumberFormatOptions = Intl.NumberFormatOptions;
+/** Date-time format presets keyed by locale and preset name. */
 export type LocaleDateTimeFormatSource = Partial<Record<string, Record<string, LocaleDateTimeFormatOptions>>>;
+/** Number format presets keyed by locale and preset name. */
 export type LocaleNumberFormatSource = Partial<Record<string, Record<string, LocaleNumberFormatOptions>>>;
 export type LocaleDateTimeFormatName = string;
 export type LocaleNumberFormatName = string;
+/** Formats a date-time value with either a preset name or inline Intl options. */
 export type LocaleDateTimeFormatter = (
 	value: LocaleDateTimeValue,
 	format?: LocaleDateTimeFormatName | LocaleDateTimeFormatOptions,
 	options?: LocaleDateTimeFormatOptions,
 ) => string;
+/** Formats a number value with either a preset name or inline Intl options. */
 export type LocaleNumberFormatter = (
 	value: LocaleNumberValue,
 	format?: LocaleNumberFormatName | LocaleNumberFormatOptions,
 	options?: LocaleNumberFormatOptions,
 ) => string;
+/** Localizer functions grouped by global and SFC scopes. */
 export type LocaleLocalizerScope = {
 	env: LocaleLocalizerDictionary;
 	sfc: LocaleLocalizerDictionary;
 };
+/** Nested localizer dictionary returned by `$l` and localizer helpers. */
 export interface LocaleLocalizerDictionary {
 	[key: string]: LocaleTemplateFunction | LocaleMessageFunction | LocaleLocalizerDictionary;
 }
 
+/** Locale payload loaded for one locale. */
 export type LocaleBundle = {
 	global?: RuntimeLocaleDictionary;
 	modules?: Partial<Record<string, RuntimeLocaleDictionary>>;
 };
 
+/** Async loader for a locale payload. */
 export type LocaleLoader = () => Promise<LocaleBundle | { default: LocaleBundle }>;
 
+/** Runtime options used to create an internationalization instance. */
 export type InternationalizationRuntimeOptions = {
+	/** Locale used as the primary fallback and generated type source. */
 	primaryLocale: string;
+	/** Locale to load first. Defaults to `primaryLocale`. */
 	initialLocale?: string;
+	/** Locale used when a message is missing from the active locale. */
 	fallbackLocale?: string;
+	/** Message parser used for string messages. */
 	messageSyntax?: LocaleMessageSyntax;
+	/** Locale bundle loaders keyed by locale code. */
 	loaders: Partial<Record<string, LocaleLoader>>;
+	/** Date-time format presets keyed by locale and preset name. */
 	dateTimeFormats?: LocaleDateTimeFormatSource;
+	/** Number format presets keyed by locale and preset name. */
 	numberFormats?: LocaleNumberFormatSource;
 };
 
+/** Installed runtime instance shared through Vue provide/inject. */
 export type InternationalizationInstance = {
+	/** Currently loaded locale code. */
 	locale: string;
+	/** Primary locale code. */
 	primaryLocale: string;
+	/** Promise that settles after the initial locale load attempt. */
 	ready: Promise<void>;
+	/** Loads a locale bundle if it has not already been loaded. */
 	loadLocale(locale: string): Promise<void>;
+	/** Installs the instance into a Vue app. */
 	install(app: App): void;
 };
 
@@ -80,13 +113,19 @@ type InternationalizationState = {
 	numberFormats: LocaleNumberFormatSource;
 };
 
-const INTERNATIONALIZATION_KEY: InjectionKey<InternationalizationInstance> = Symbol('vue-internationalization');
+const INTERNATIONALIZATION_KEY: InjectionKey<InternationalizationInstance> = Symbol('vite-vue-internationalization');
 const EMPTY_DICTIONARY: RuntimeLocaleDictionary = {};
 const DICTIONARY_PROXY_CACHE = new WeakMap<RuntimeLocaleDictionary, WeakMap<RuntimeLocaleDictionary, Map<string, RuntimeLocaleDictionary>>>();
 const LOCALIZER_PROXY_CACHE = new WeakMap<RuntimeLocaleDictionary, WeakMap<RuntimeLocaleDictionary, Map<string, LocaleLocalizerDictionary>>>();
 const STATES = new WeakMap<InternationalizationInstance, InternationalizationState>();
 let activeInternationalization: InternationalizationInstance | undefined;
 
+/**
+ * Vue component for component interpolation.
+ *
+ * It renders a message from either the `message` prop or a locale `scope` and
+ * `path`, replacing named placeholders with matching slots when present.
+ */
 export const Internationalization = defineComponent({
 	name: 'Internationalization',
 	props: {
@@ -128,6 +167,7 @@ export const Internationalization = defineComponent({
 	},
 });
 
+/** Creates a runtime instance from explicit locale loaders and format presets. */
 export function createInternationalization(options: InternationalizationRuntimeOptions): InternationalizationInstance {
 	const state = reactive<InternationalizationState>({
 		locale: options.initialLocale ?? options.primaryLocale,
@@ -179,28 +219,38 @@ export function createInternationalization(options: InternationalizationRuntimeO
 	return instance;
 }
 
+/**
+ * Defines programmatic locale dictionaries while preserving literal TypeScript
+ * types for downstream extraction and component-level access.
+ */
 export function defineInternationalization<TMessages extends Partial<Record<string, RuntimeLocaleDictionary>>>(
 	messages: TMessages,
 ): TMessages {
 	return messages;
 }
 
+/** Sets the active instance used outside Vue injection context. */
 export function setActiveInternationalization(instance: InternationalizationInstance): void {
 	activeInternationalization = instance;
 }
 
+/** Returns the installed internationalization instance. */
 export function useInternationalization(): InternationalizationInstance {
 	const internationalization = hasInjectionContext()
 		? inject(INTERNATIONALIZATION_KEY, activeInternationalization)
 		: activeInternationalization;
 
 	if (!internationalization) {
-		throw new Error('vue-internationalization is not installed. Call app.use(createInternationalization()).');
+		throw new Error('vite-vue-internationalization is not installed. Call app.use(createInternationalization()).');
 	}
 
 	return internationalization;
 }
 
+/**
+ * Returns reactive global and SFC dictionaries for the module identified by
+ * `moduleUrl`.
+ */
 export function useLocale<
 	TGlobal extends RuntimeLocaleDictionary = RuntimeLocaleDictionary,
 	TModule extends RuntimeLocaleDictionary = RuntimeLocaleDictionary,
@@ -210,6 +260,7 @@ export function useLocale<
 	return computed(() => resolveLocale(internationalization, moduleUrl)) as ComputedRef<LocaleScope<TGlobal, TModule>>;
 }
 
+/** Returns reactive localizer functions for global and SFC dictionaries. */
 export function useLocalizer(moduleUrl: string): Readonly<ComputedRef<LocaleLocalizerScope>> {
 	const internationalization = useInternationalization();
 	const locale = useLocale(moduleUrl);
@@ -225,6 +276,11 @@ export function useLocalizer(moduleUrl: string): Readonly<ComputedRef<LocaleLoca
 	});
 }
 
+/**
+ * Creates a lazy SFC dictionary proxy for component static `$locale` access.
+ *
+ * This is primarily used by generated component options.
+ */
 export function createComponentLocale<TModule extends RuntimeLocaleDictionary = RuntimeLocaleDictionary>(
 	moduleUrl: string,
 ): TModule {
@@ -240,6 +296,11 @@ export function createComponentLocale<TModule extends RuntimeLocaleDictionary = 
 	}) as TModule;
 }
 
+/**
+ * Creates a lazy SFC localizer proxy for component static `$l` access.
+ *
+ * This is primarily used by generated component options.
+ */
 export function createComponentLocalizer(moduleUrl: string): LocaleLocalizerDictionary {
 	return new Proxy({}, {
 		get(_target, property) {
@@ -258,6 +319,7 @@ export function createComponentLocalizer(moduleUrl: string): LocaleLocalizerDict
 	}) as LocaleLocalizerDictionary;
 }
 
+/** Returns a formatter for the current locale's date-time presets. */
 export function useDateTimeFormat(): Readonly<ComputedRef<LocaleDateTimeFormatter>> {
 	const internationalization = useInternationalization();
 
@@ -267,6 +329,7 @@ export function useDateTimeFormat(): Readonly<ComputedRef<LocaleDateTimeFormatte
 	});
 }
 
+/** Returns a formatter for the current locale's number presets. */
 export function useNumberFormat(): Readonly<ComputedRef<LocaleNumberFormatter>> {
 	const internationalization = useInternationalization();
 
@@ -276,6 +339,7 @@ export function useNumberFormat(): Readonly<ComputedRef<LocaleNumberFormatter>> 
 	});
 }
 
+/** Formats a lightweight Vue-style locale template with named values. */
 export function formatLocaleTemplate(template: string, values: LocaleTemplateValues = {}): string {
 	return formatLocaleMessage(template, { values });
 }
@@ -717,7 +781,7 @@ function getState(internationalization: InternationalizationInstance): Internati
 	const state = STATES.get(internationalization);
 
 	if (!state) {
-		throw new Error('Invalid vue-internationalization instance.');
+		throw new Error('Invalid vite-vue-internationalization instance.');
 	}
 
 	return state;

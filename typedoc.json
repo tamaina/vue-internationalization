@@ -1,0 +1,18 @@
+{
+  "entryPoints": ["src/index.ts", "src/virtual.d.ts"],
+  "out": "docs/.typedoc-api",
+  "plugin": ["typedoc-plugin-markdown"],
+  "membersWithOwnFile": [],
+  "outputFileStrategy": "modules",
+  "readme": "none",
+  "hideGenerator": true,
+  "excludeInternal": true,
+  "excludePrivate": true,
+  "excludeProtected": true,
+  "githubPages": false,
+  "sourceLinkTemplate": "https://github.com/tamaina/vite-vue-internationalization/blob/{gitRevision}/{path}#L{line}",
+  "validation": {
+    "notExported": false
+  },
+  "tsconfig": "tsconfig.json"
+}

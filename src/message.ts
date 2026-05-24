@@ -2,12 +2,18 @@ import { parse as parseIcuMessage, TYPE } from '@formatjs/icu-messageformat-pars
 import IntlMessageFormat from 'intl-messageformat';
 import type { MessageFormatElement } from '@formatjs/icu-messageformat-parser';
 
+/** Primitive value accepted by locale message formatters. */
 export type LocaleMessageValue = string | number | bigint | boolean | null | undefined | Date;
+/** Named values passed to locale message formatters. */
 export type LocaleMessageNamedValues = Record<string, LocaleMessageValue>;
+/** Positional values passed to Vue-style list interpolation. */
 export type LocaleMessageListValues = LocaleMessageValue[];
+/** Values passed to locale message formatters. */
 export type LocaleMessageValues = LocaleMessageNamedValues | LocaleMessageListValues;
+/** Supported locale message syntaxes. */
 export type LocaleMessageSyntax = 'vue' | 'icu';
 
+/** Token produced by the lightweight Vue-style message parser. */
 export type LocaleMessageToken =
 	| { type: 'text'; value: string }
 	| { type: 'named'; key: string }
@@ -15,10 +21,12 @@ export type LocaleMessageToken =
 	| { type: 'literal'; value: string }
 	| { type: 'linked'; key: string; modifier?: string };
 
+/** Parsed lightweight Vue-style message. */
 export type LocaleMessageAst = {
 	cases: LocaleMessageToken[][];
 };
 
+/** Context used when formatting a locale message. */
 export type LocaleMessageContext = {
 	locale?: string;
 	syntax?: LocaleMessageSyntax;
@@ -33,10 +41,12 @@ const ICU_MESSAGE_CACHE = new Map<string, IntlMessageFormat>();
 const ICU_ARGUMENT_CACHE = new Map<string, string[]>();
 const ICU_MESSAGE_RE = /\{\s*[$A-Z_a-z][\w$-]*\s*,\s*(?:plural|select|selectordinal)\s*,/u;
 
+/** Returns whether a message looks like an ICU plural/select message. */
 export function isIcuLocaleMessage(message: string): boolean {
 	return ICU_MESSAGE_RE.test(message);
 }
 
+/** Parses a lightweight Vue-style locale message into tokens. */
 export function compileLocaleMessage(message: string): LocaleMessageAst {
 	const cached = MESSAGE_CACHE.get(message);
 
@@ -60,6 +70,7 @@ export function compileLocaleMessage(message: string): LocaleMessageAst {
 	return ast;
 }
 
+/** Formats a locale message with either Vue-style or ICU syntax. */
 export function formatLocaleMessage(message: string, context: LocaleMessageContext = {}): string {
 	if (context.syntax === 'icu') {
 		const formatter = getIcuMessageFormatter(message, context.locale);
@@ -74,6 +85,7 @@ export function formatLocaleMessage(message: string, context: LocaleMessageConte
 	return tokens.map((token) => formatToken(token, context)).join('');
 }
 
+/** Returns the named interpolation keys required by a locale message. */
 export function getLocaleMessageNamedKeys(message: string, syntax: LocaleMessageSyntax = 'vue'): string[] {
 	if (syntax === 'icu') {
 		return getIcuLocaleMessageArgumentKeys(message);
@@ -92,6 +104,7 @@ export function getLocaleMessageNamedKeys(message: string, syntax: LocaleMessage
 	return keys;
 }
 
+/** Returns the list interpolation indexes required by a Vue-style message. */
 export function getLocaleMessageListIndexes(message: string): number[] {
 	const indexes: number[] = [];
 
@@ -106,6 +119,7 @@ export function getLocaleMessageListIndexes(message: string): number[] {
 	return indexes.sort((left, right) => left - right);
 }
 
+/** Returns whether a locale message contains plural variants. */
 export function hasLocaleMessagePlural(message: string, syntax: LocaleMessageSyntax = 'vue'): boolean {
 	if (syntax === 'icu') {
 		return true;
@@ -114,6 +128,7 @@ export function hasLocaleMessagePlural(message: string, syntax: LocaleMessageSyn
 	return compileLocaleMessage(message).cases.length > 1;
 }
 
+/** Returns linked message keys referenced by a Vue-style message. */
 export function getLocaleMessageLinkedKeys(message: string): string[] {
 	const keys: string[] = [];
 

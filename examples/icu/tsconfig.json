@@ -2,7 +2,7 @@
   "vueCompilerOptions": {
     "plugins": [
       {
-        "name": "vue-internationalization/volar",
+        "name": "vite-vue-internationalization/volar",
         "primaryLocale": "ja-JP",
         "buildStrategy": "inline-chunks",
         "messageSyntax": "icu",
