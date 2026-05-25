@@ -992,7 +992,7 @@ describe('virtual module generation', () => {
 			'assets/App.js': {
 				type: 'chunk',
 				fileName: 'assets/App.js',
-				code: `const msg = ${appCode}; preload(() => import("./AsyncPanel.js"), ["AsyncPanel.js"]);`,
+				code: `const msg = ${appCode}; preload(() => import("./AsyncPanel.js").then((module) => module.default), __VITE_PRELOAD__);`,
 				imports: [],
 				dynamicImports: [],
 			},
@@ -1022,8 +1022,13 @@ describe('virtual module generation', () => {
 			{},
 		);
 
-		expect(bundle['assets/App.ja-JP.js'].code).toContain('"AsyncPanel.ja-JP.js"');
-		expect(bundle['assets/App.en-US.js'].code).toContain('"AsyncPanel.en-US.js"');
+		expect(bundle['assets/App.ja-JP.js'].code).not.toContain('__VITE_PRELOAD__');
+		expect(bundle['assets/App.en-US.js'].code).not.toContain('__VITE_PRELOAD__');
+		expect(bundle['assets/App.ja-JP.js'].code).toContain('./AsyncPanel.ja-JP.js');
+		expect(bundle['assets/App.en-US.js'].code).toContain('./AsyncPanel.en-US.js');
+		expect(bundle['assets/App.ja-JP.js'].code).toContain('.then((module) => module.default)');
+		expect(bundle['assets/App.ja-JP.js'].code).toContain('"assets/AsyncPanel.ja-JP.js"');
+		expect(bundle['assets/App.en-US.js'].code).toContain('"assets/AsyncPanel.en-US.js"');
 		expect(bundle['assets/App.ja-JP.js'].code).not.toContain('"AsyncPanel.js"');
 		expect(bundle['assets/App.en-US.js'].code).not.toContain('"AsyncPanel.js"');
 	});

@@ -171,6 +171,10 @@ type MutableOutputChunk = {
 	code: string;
 	imports: string[];
 	dynamicImports: string[];
+	viteMetadata?: {
+		importedAssets?: Set<string>;
+		importedCss?: Set<string>;
+	};
 	[key: string]: unknown;
 };
 type MutableOutputBundle = Record<string, unknown>;
@@ -640,6 +644,7 @@ export function inlineLocaleChunks(
 			originalImports: [...chunk.imports],
 			originalDynamicImports: [...chunk.dynamicImports],
 		}));
+	const chunksByOriginalFileName = new Map(chunks.map((chunk) => [chunk.originalFileName, chunk]));
 	const localizableFiles = collectLocalizableChunkFiles(chunks);
 	const localizableChunks = chunks
 		.filter(({ originalFileName }) => localizableFiles.has(originalFileName))
@@ -671,14 +676,20 @@ export function inlineLocaleChunks(
 				getLocalizableChunkReferences(originalCode, originalImports, originalDynamicImports, localizableFiles),
 				locale,
 			);
+			localizedChunk.code = replaceVitePreloadMarkers(
+				localizedChunk.code,
+				locale,
+				localizableFiles,
+				chunksByOriginalFileName,
+			);
 
-				if (options.emitChunk) {
-					options.emitChunk(localizedChunk);
-				} else {
-					bundle[localizedChunk.fileName] = localizedChunk;
-				}
-				localeFiles[locale] = localizedChunk.fileName;
+			if (options.emitChunk) {
+				options.emitChunk(localizedChunk);
+			} else {
+				bundle[localizedChunk.fileName] = localizedChunk;
 			}
+			localeFiles[locale] = localizedChunk.fileName;
+		}
 
 		delete bundle[originalFileName];
 		manifest.entries.push({
@@ -941,6 +952,108 @@ function replaceChunkFileReferences(code: string, localizableFiles: Set<string>,
 	}
 
 	return next;
+}
+
+function replaceVitePreloadMarkers(
+	code: string,
+	locale: string,
+	localizableFiles: Set<string>,
+	chunksByOriginalFileName: Map<string, {
+		chunk: MutableOutputChunk;
+		originalFileName: string;
+		originalImports: string[];
+	}>,
+): string {
+	return code
+		.replace(/(import\(\s*(["'`])\.\/([^"'`]+)\2\s*\)(?:(?!,\s*__VITE_PRELOAD__)[\s\S])*,\s*)__VITE_PRELOAD__/gu, (
+			_match,
+			prefix: string,
+			_quote: string,
+			specifier: string,
+		) => {
+			const fileName = findOriginalChunkFileName(specifier, locale, chunksByOriginalFileName);
+			const dependencies = fileName
+				? collectPreloadDependencies(fileName, locale, localizableFiles, chunksByOriginalFileName)
+				: [specifier];
+
+			return `${prefix}${JSON.stringify(dependencies)}`;
+		})
+		.replaceAll('__VITE_PRELOAD__', '[]');
+}
+
+function findOriginalChunkFileName(
+	specifier: string,
+	locale: string,
+	chunksByOriginalFileName: Map<string, {
+		originalFileName: string;
+	}>,
+): string | undefined {
+	const normalized = specifier.replace(/^\.\//u, '');
+
+	for (const fileName of chunksByOriginalFileName.keys()) {
+		const localizedFileName = addLocaleToFileName(fileName, locale);
+
+		if (
+			normalized === fileName ||
+			normalized === localizedFileName ||
+			normalized === baseName(fileName) ||
+			normalized === baseName(localizedFileName)
+		) {
+			return fileName;
+		}
+	}
+
+	return undefined;
+}
+
+function collectPreloadDependencies(
+	fileName: string,
+	locale: string,
+	localizableFiles: Set<string>,
+	chunksByOriginalFileName: Map<string, {
+		chunk: MutableOutputChunk;
+		originalFileName: string;
+		originalImports: string[];
+	}>,
+	seen = new Set<string>(),
+): string[] {
+	if (seen.has(fileName)) {
+		return [];
+	}
+	seen.add(fileName);
+
+	const chunk = chunksByOriginalFileName.get(fileName);
+	const dependencies = new Set<string>([
+		addLocaleToImportedFileName(localizableFiles, fileName, locale),
+	]);
+
+	if (!chunk) {
+		return [...dependencies];
+	}
+
+	for (const css of chunk.chunk.viteMetadata?.importedCss ?? []) {
+		dependencies.add(css);
+	}
+
+	for (const asset of chunk.chunk.viteMetadata?.importedAssets ?? []) {
+		dependencies.add(asset);
+	}
+
+	for (const importedFileName of chunk.originalImports) {
+		dependencies.add(addLocaleToImportedFileName(localizableFiles, importedFileName, locale));
+
+		for (const dependency of collectPreloadDependencies(
+			importedFileName,
+			locale,
+			localizableFiles,
+			chunksByOriginalFileName,
+			seen,
+		)) {
+			dependencies.add(dependency);
+		}
+	}
+
+	return [...dependencies];
 }
 
 function createInlinePayloadResolver(
