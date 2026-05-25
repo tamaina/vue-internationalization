@@ -610,12 +610,14 @@ function transformVueSfcInline(code: string, filename: string, root: string, pri
 	const marker = createInlineLocaleMarker(moduleId);
 	const stripped = stripLocaleBlocks(code, filename);
 	const rewrittenComponentAccess = rewriteInlineComponentLocaleAccess(stripped, filename, root);
-	const withSetupBinding = injectInlineLocaleBinding(rewriteInlineLocaleTemplateAccess(rewrittenComponentAccess, moduleId), moduleId);
+	const rewrittenLocaleAccess = rewriteInlineLocaleTemplateAccess(rewrittenComponentAccess, moduleId);
 	const moduleDictionary = getPrimaryLocaleDictionary(parsed.blocks, primaryLocale, parsed.scriptMessages);
 
 	if (!hasLocaleDictionaryEntries(moduleDictionary)) {
-		return withSetupBinding;
+		return rewrittenLocaleAccess;
 	}
+
+	const withSetupBinding = injectInlineLocaleBinding(rewrittenLocaleAccess, moduleId);
 
 	return injectComponentLocaleOptions(withSetupBinding, filename, {
 		module: moduleDictionary,

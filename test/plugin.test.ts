@@ -288,9 +288,9 @@ describe('virtual module generation', () => {
 			'</script>',
 		].join('\n'), '/repo/src/App.vue', '/repo', 'ja-JP', true);
 
-		expect(output).toContain('__VUE_INTERNATIONALIZATION_INLINE_LOCALE__');
 		expect(output).toContain('__VUE_INTERNATIONALIZATION_INLINE_TEXT__');
 		expect(output).not.toContain('$locale: __VUE_INTERNATIONALIZATION_INLINE_LOCALE__');
+		expect(output).not.toContain('const $locale = __VUE_INTERNATIONALIZATION_INLINE_LOCALE__');
 	});
 
 	it('does not inject inline bindings twice', () => {
@@ -302,7 +302,7 @@ describe('virtual module generation', () => {
 		].join('\n'), '/repo/src/App.vue', '/repo', 'ja-JP', true);
 
 		expect(output).toBeDefined();
-		expect(internals.transformVueSfcInline(output ?? '', '/repo/src/App.vue', '/repo', 'ja-JP', true)).toBeUndefined();
+		expect(internals.transformVueSfcInline(output ?? '', '/repo/src/App.vue', '/repo', 'ja-JP', true)).toBe(output);
 	});
 
 	it('does not redeclare existing inline locale bindings', () => {
