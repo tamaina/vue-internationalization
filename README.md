@@ -2,6 +2,8 @@
 
 A typed internationalization plugin for Vite that lets Vue SFCs own their translations directly.
 
+`VVI` is the short name for `vite-vue-internationalization`.
+
 ## Documentation
 
 - [English documentation](./docs/en/index.md)

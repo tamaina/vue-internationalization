@@ -4,6 +4,8 @@
 
 This file is a compact guide for AI coding assistants working with projects that use `vite-vue-internationalization`.
 
+`VVI` is the accepted shorthand for `vite-vue-internationalization`. It is fine to use `VVI` when discussing this package in prose, comments, issues, and implementation notes, but keep import specifiers and package names spelled as `vite-vue-internationalization`.
+
 ## Package Entry Points
 
 - `vite-vue-internationalization`: Vite plugin, message helpers, and runtime exports.

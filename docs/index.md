@@ -1,6 +1,8 @@
 # vite-vue-internationalization
 ***SFCカスタムブロック*** と ***インライン化チャンク*** で、Vite + Vueアプリの国際化を簡単にしましょう！
 
+`VVI` は `vite-vue-internationalization` の略称です。
+
 ## 特長 / Features
 
 ### SFC カスタムブロック
