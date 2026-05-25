@@ -188,6 +188,18 @@ type MutableOutputAsset = {
 };
 type InlineLocaleChunkEmitter = (chunk: MutableOutputChunk) => void;
 type InlineLocaleAssetEmitter = (asset: MutableOutputAsset) => void;
+type InlineChunkSnapshot = {
+	chunk: MutableOutputChunk;
+	originalCode: string;
+	originalFileName: string;
+	originalImports: string[];
+	originalDynamicImports: string[];
+};
+type InlineChunkReferenceMap = {
+	localizeFileName(fileName: string, locale: string): string;
+	localizeCodeReferences(code: string, locale: string): string;
+	replacePreloadMarkers(code: string, locale: string): string;
+};
 
 const INLINE_MARKER_PREFIX = '__VUE_INTERNATIONALIZATION_INLINE__:';
 const INLINE_LOCALE_CALL = '__VUE_INTERNATIONALIZATION_INLINE_LOCALE__';
@@ -644,8 +656,8 @@ export function inlineLocaleChunks(
 			originalImports: [...chunk.imports],
 			originalDynamicImports: [...chunk.dynamicImports],
 		}));
-	const chunksByOriginalFileName = new Map(chunks.map((chunk) => [chunk.originalFileName, chunk]));
 	const localizableFiles = collectLocalizableChunkFiles(chunks);
+	const referenceMap = createInlineChunkReferenceMap(chunks, localizableFiles);
 	const localizableChunks = chunks
 		.filter(({ originalFileName }) => localizableFiles.has(originalFileName))
 		.map((chunk) => ({
@@ -667,20 +679,16 @@ export function inlineLocaleChunks(
 			};
 
 			localizedChunk.fileName = addLocaleToFileName(originalFileName, locale);
-			localizedChunk.imports = originalImports.map((fileName) => addLocaleToImportedFileName(localizableFiles, fileName, locale));
+			localizedChunk.imports = originalImports.map((fileName) => referenceMap.localizeFileName(fileName, locale));
 			localizedChunk.dynamicImports = originalDynamicImports.map((fileName) =>
-				addLocaleToImportedFileName(localizableFiles, fileName, locale),
+				referenceMap.localizeFileName(fileName, locale),
 			);
-			localizedChunk.code = replaceChunkFileReferences(
-				applyInlineReplacementPlan(originalCode, plan, payloadCache.resolve(locale)),
-				localizableFiles,
+			localizedChunk.code = referenceMap.replacePreloadMarkers(
+				referenceMap.localizeCodeReferences(
+					applyInlineReplacementPlan(originalCode, plan, payloadCache.resolve(locale)),
+					locale,
+				),
 				locale,
-			);
-			localizedChunk.code = replaceVitePreloadMarkers(
-				localizedChunk.code,
-				locale,
-				localizableFiles,
-				chunksByOriginalFileName,
 			);
 
 			if (options.emitChunk) {
@@ -910,14 +918,6 @@ export function addLocaleToFileName(fileName: string, locale: string): string {
 	return fileName.replace(/(\.m?js)$/u, `.${sanitizeLocale(locale)}$1`);
 }
 
-function addLocaleToImportedFileName(localizableFiles: Set<string>, fileName: string, locale: string): string {
-	if (localizableFiles.has(fileName)) {
-		return addLocaleToFileName(fileName, locale);
-	}
-
-	return fileName;
-}
-
 function getLocalizableChunkReferences(
 	code: string,
 	imports: string[],
@@ -941,119 +941,101 @@ function getLocalizableChunkReferences(
 	return references;
 }
 
-function replaceChunkFileReferences(code: string, localizableFiles: Set<string>, locale: string): string {
-	let next = code;
+function createInlineChunkReferenceMap(
+	chunks: InlineChunkSnapshot[],
+	localizableFiles: Set<string>,
+): InlineChunkReferenceMap {
+	const chunksByOriginalFileName = new Map(chunks.map((chunk) => [chunk.originalFileName, chunk]));
 
-	for (const fileName of localizableFiles) {
-		const localizedFileName = addLocaleToFileName(fileName, locale);
-
-		next = next.replaceAll(fileName, localizedFileName);
-		next = next.replaceAll(baseName(fileName), baseName(localizedFileName));
+	function localizeFileName(fileName: string, locale: string): string {
+		return localizableFiles.has(fileName) ? addLocaleToFileName(fileName, locale) : fileName;
 	}
 
-	return next;
-}
+	function findOriginalFileName(specifier: string, locale: string): string | undefined {
+		const normalized = specifier.replace(/^\.\//u, '');
 
-function replaceVitePreloadMarkers(
-	code: string,
-	locale: string,
-	localizableFiles: Set<string>,
-	chunksByOriginalFileName: Map<string, {
-		chunk: MutableOutputChunk;
-		originalFileName: string;
-		originalImports: string[];
-	}>,
-): string {
-	return code
-		.replace(/(import\(\s*(["'`])\.\/([^"'`]+)\2\s*\)(?:(?!,\s*__VITE_PRELOAD__)[\s\S])*,\s*)__VITE_PRELOAD__/gu, (
-			_match,
-			prefix: string,
-			_quote: string,
-			specifier: string,
-		) => {
-			const fileName = findOriginalChunkFileName(specifier, locale, chunksByOriginalFileName);
-			const dependencies = fileName
-				? collectPreloadDependencies(fileName, locale, localizableFiles, chunksByOriginalFileName)
-				: [specifier];
+		for (const fileName of chunksByOriginalFileName.keys()) {
+			const localizedFileName = addLocaleToFileName(fileName, locale);
 
-			return `${prefix}${JSON.stringify(dependencies)}`;
-		})
-		.replaceAll('__VITE_PRELOAD__', '[]');
-}
-
-function findOriginalChunkFileName(
-	specifier: string,
-	locale: string,
-	chunksByOriginalFileName: Map<string, {
-		originalFileName: string;
-	}>,
-): string | undefined {
-	const normalized = specifier.replace(/^\.\//u, '');
-
-	for (const fileName of chunksByOriginalFileName.keys()) {
-		const localizedFileName = addLocaleToFileName(fileName, locale);
-
-		if (
-			normalized === fileName ||
-			normalized === localizedFileName ||
-			normalized === baseName(fileName) ||
-			normalized === baseName(localizedFileName)
-		) {
-			return fileName;
+			if (
+				normalized === fileName ||
+				normalized === localizedFileName ||
+				normalized === baseName(fileName) ||
+				normalized === baseName(localizedFileName)
+			) {
+				return fileName;
+			}
 		}
+
+		return undefined;
 	}
 
-	return undefined;
-}
+	function localizeCodeReferences(code: string, locale: string): string {
+		let next = code;
 
-function collectPreloadDependencies(
-	fileName: string,
-	locale: string,
-	localizableFiles: Set<string>,
-	chunksByOriginalFileName: Map<string, {
-		chunk: MutableOutputChunk;
-		originalFileName: string;
-		originalImports: string[];
-	}>,
-	seen = new Set<string>(),
-): string[] {
-	if (seen.has(fileName)) {
-		return [];
+		for (const fileName of localizableFiles) {
+			const localizedFileName = addLocaleToFileName(fileName, locale);
+
+			next = next.replaceAll(fileName, localizedFileName);
+			next = next.replaceAll(baseName(fileName), baseName(localizedFileName));
+		}
+
+		return next;
 	}
-	seen.add(fileName);
 
-	const chunk = chunksByOriginalFileName.get(fileName);
-	const dependencies = new Set<string>([
-		addLocaleToImportedFileName(localizableFiles, fileName, locale),
-	]);
+	function collectPreloadDependencies(fileName: string, locale: string, seen = new Set<string>()): string[] {
+		if (seen.has(fileName)) {
+			return [];
+		}
+		seen.add(fileName);
 
-	if (!chunk) {
+		const chunk = chunksByOriginalFileName.get(fileName);
+		const dependencies = new Set<string>([localizeFileName(fileName, locale)]);
+
+		if (!chunk) {
+			return [...dependencies];
+		}
+
+		for (const css of chunk.chunk.viteMetadata?.importedCss ?? []) {
+			dependencies.add(css);
+		}
+
+		for (const asset of chunk.chunk.viteMetadata?.importedAssets ?? []) {
+			dependencies.add(asset);
+		}
+
+		for (const importedFileName of chunk.originalImports) {
+			dependencies.add(localizeFileName(importedFileName, locale));
+
+			for (const dependency of collectPreloadDependencies(importedFileName, locale, seen)) {
+				dependencies.add(dependency);
+			}
+		}
+
 		return [...dependencies];
 	}
 
-	for (const css of chunk.chunk.viteMetadata?.importedCss ?? []) {
-		dependencies.add(css);
+	function replacePreloadMarkers(code: string, locale: string): string {
+		return code
+			.replace(/(import\(\s*(["'`])\.\/([^"'`]+)\2\s*\)(?:(?!,\s*__VITE_PRELOAD__)[\s\S])*,\s*)__VITE_PRELOAD__/gu, (
+				_match,
+				prefix: string,
+				_quote: string,
+				specifier: string,
+			) => {
+				const fileName = findOriginalFileName(specifier, locale);
+				const dependencies = fileName ? collectPreloadDependencies(fileName, locale) : [specifier];
+
+				return `${prefix}${JSON.stringify(dependencies)}`;
+			})
+			.replaceAll('__VITE_PRELOAD__', '[]');
 	}
 
-	for (const asset of chunk.chunk.viteMetadata?.importedAssets ?? []) {
-		dependencies.add(asset);
-	}
-
-	for (const importedFileName of chunk.originalImports) {
-		dependencies.add(addLocaleToImportedFileName(localizableFiles, importedFileName, locale));
-
-		for (const dependency of collectPreloadDependencies(
-			importedFileName,
-			locale,
-			localizableFiles,
-			chunksByOriginalFileName,
-			seen,
-		)) {
-			dependencies.add(dependency);
-		}
-	}
-
-	return [...dependencies];
+	return {
+		localizeFileName,
+		localizeCodeReferences,
+		replacePreloadMarkers,
+	};
 }
 
 function createInlinePayloadResolver(
