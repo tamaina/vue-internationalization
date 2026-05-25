@@ -24,6 +24,7 @@ export default defineConfig({
 				nav: [
 					{ text: 'ガイド', link: '/getting-started' },
 					{ text: 'API', link: '/api' },
+					{ text: 'npm', link: 'https://www.npmjs.com/package/vite-vue-internationalization' },
 				],
 				sidebar: [
 					{ text: 'トップ', link: '/' },
@@ -46,6 +47,7 @@ export default defineConfig({
 				nav: [
 					{ text: 'Guide', link: '/en/getting-started' },
 					{ text: 'API', link: '/api' },
+					{ text: 'npm', link: 'https://www.npmjs.com/package/vite-vue-internationalization' },
 				],
 				sidebar: [
 					{ text: 'Home', link: '/en/' },

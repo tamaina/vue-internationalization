@@ -50,6 +50,11 @@ This supports type checking in `vue-tsc` and type annotations in the official Vu
 - [Build Strategy](./build-strategy.md): choosing between `virtual` and `inline-chunks`
 - [API Reference](../api.md): generated from English JSDoc comments
 
+## Links
+
+- [GitHub repository](https://github.com/tamaina/vite-vue-internationalization)
+- [npm package](https://www.npmjs.com/package/vite-vue-internationalization)
+
 ## Examples
 
 - [Open the Vue syntax example on StackBlitz](https://stackblitz.com/github/tamaina/vite-vue-internationalization?startScript=example%3Avue&title=vite-vue-internationalization%20Vue%20syntax)
