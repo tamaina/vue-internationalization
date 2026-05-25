@@ -39,6 +39,10 @@ export type InlineLocaleLoaderAsset = {
 	fileName: string;
 	source: string;
 };
+type InlineLocaleHtmlOptions = {
+	base?: string;
+	emitAsset?: InlineLocaleAssetEmitter;
+};
 
 type ModuleMessages = Partial<Record<string, Partial<Record<string, LocaleDictionary>>>>;
 type LocaleMessages = Partial<Record<string, LocaleDictionary>>;
@@ -839,16 +843,16 @@ function replaceInlineLocaleMemberAccessWithResolver(code: string, resolvePayloa
 export function inlineLocaleHtml(
 	bundle: MutableOutputBundle,
 	manifest: InlineChunkManifest,
-	options: {
-		emitAsset?: InlineLocaleAssetEmitter;
-	} = {},
+	options: InlineLocaleHtmlOptions = {},
 ): void {
+	const base = options.base ?? '/';
+
 	for (const asset of Object.values(bundle)) {
 		if (!isMutableOutputAsset(asset) || typeof asset.source !== 'string' || !asset.fileName.endsWith('.html')) {
 			continue;
 		}
 
-		for (const loader of getInlineLocaleHtmlLoaders(asset.source, manifest, asset.fileName)) {
+		for (const loader of getInlineLocaleHtmlLoaders(asset.source, manifest, asset.fileName, base)) {
 			const loaderAsset: MutableOutputAsset = {
 				type: 'asset',
 				fileName: loader.fileName,
@@ -863,7 +867,7 @@ export function inlineLocaleHtml(
 			}
 		}
 
-		asset.source = replaceInlineLocaleHtml(asset.source, manifest, asset.fileName);
+		asset.source = replaceInlineLocaleHtml(asset.source, manifest, asset.fileName, base);
 	}
 }
 
@@ -871,10 +875,11 @@ export function getInlineLocaleHtmlLoaders(
 	html: string,
 	manifest: InlineChunkManifest,
 	htmlFileName?: string,
+	base = '/',
 ): InlineLocaleLoaderAsset[] {
-	return findHtmlLocaleEntries(html, manifest, htmlFileName).map((entry) => ({
+	return findHtmlLocaleEntries(html, manifest, htmlFileName, base).map((entry) => ({
 		fileName: createLocaleLoaderFileName(entry.originalFileName),
-		source: createLocaleLoaderSource(entry.locales, manifest.primaryLocale),
+		source: createLocaleLoaderSource(entry.locales, manifest.primaryLocale, base),
 	}));
 }
 
@@ -882,14 +887,15 @@ export function replaceInlineLocaleHtml(
 	html: string,
 	manifest: InlineChunkManifest,
 	htmlFileName?: string,
+	base = '/',
 ): string {
 	let next = html;
-	const fallbackEntries = findFallbackHtmlLocaleEntries(html, manifest, htmlFileName);
+	const fallbackEntries = findFallbackHtmlLocaleEntries(html, manifest, htmlFileName, base);
 
 	for (const entry of manifest.entries) {
-		const replaced = replaceEntryScript(next, entry.locales, manifest.primaryLocale);
+		const replaced = replaceEntryScript(next, entry.locales, manifest.primaryLocale, base);
 		next = replaced === next && fallbackEntries.includes(entry)
-			? injectLocaleLoaderScript(next, entry, manifest.primaryLocale)
+			? injectLocaleLoaderScript(next, entry, manifest.primaryLocale, base)
 			: replaced;
 	}
 
@@ -2168,12 +2174,17 @@ function isMutableOutputAsset(value: unknown): value is MutableOutputAsset {
 	return maybeAsset.type === 'asset' && typeof maybeAsset.fileName === 'string';
 }
 
-function replaceEntryScript(html: string, localeFiles: Record<string, string>, primaryLocale: string): string {
-	return html.replace(createEntryScriptRegExp(localeFiles, primaryLocale), (_match, beforeSrc: string, afterSrc: string) => {
+function replaceEntryScript(
+	html: string,
+	localeFiles: Record<string, string>,
+	primaryLocale: string,
+	base: string,
+): string {
+	return html.replace(createEntryScriptRegExp(localeFiles, primaryLocale, base), (_match, beforeSrc: string, afterSrc: string) => {
 		const primaryFile = localeFiles[primaryLocale];
 		const loaderFileName = createLocaleLoaderFileName(originalFileNameFromLocaleFile(primaryFile, primaryLocale));
 
-		return `<script${createLoaderScriptAttributes(beforeSrc, afterSrc, loaderFileName)}></script>`;
+		return `<script${createLoaderScriptAttributes(beforeSrc, afterSrc, loaderFileName, base)}></script>`;
 	});
 }
 
@@ -2181,18 +2192,20 @@ function findHtmlLocaleEntries(
 	html: string,
 	manifest: InlineChunkManifest,
 	htmlFileName?: string,
+	base = '/',
 ): InlineChunkManifest['entries'] {
-	const scriptEntries = manifest.entries.filter((entry) => createEntryScriptRegExp(entry.locales, manifest.primaryLocale).test(html));
+	const scriptEntries = manifest.entries.filter((entry) => createEntryScriptRegExp(entry.locales, manifest.primaryLocale, base).test(html));
 
-	return scriptEntries.length > 0 ? scriptEntries : findFallbackHtmlLocaleEntries(html, manifest, htmlFileName);
+	return scriptEntries.length > 0 ? scriptEntries : findFallbackHtmlLocaleEntries(html, manifest, htmlFileName, base);
 }
 
 function findFallbackHtmlLocaleEntries(
 	html: string,
 	manifest: InlineChunkManifest,
 	htmlFileName?: string,
+	base = '/',
 ): InlineChunkManifest['entries'] {
-	if (manifest.entries.some((entry) => createEntryScriptRegExp(entry.locales, manifest.primaryLocale).test(html))) {
+	if (manifest.entries.some((entry) => createEntryScriptRegExp(entry.locales, manifest.primaryLocale, base).test(html))) {
 		return [];
 	}
 
@@ -2211,15 +2224,17 @@ function findFallbackHtmlLocaleEntries(
 	return htmlEntries.length === 1 ? htmlEntries : [];
 }
 
-function createEntryScriptRegExp(localeFiles: Record<string, string>, primaryLocale: string): RegExp {
+function createEntryScriptRegExp(localeFiles: Record<string, string>, primaryLocale: string, base: string): RegExp {
 	const primaryFile = localeFiles[primaryLocale];
-	const candidates = new Set([
-		originalFileNameFromLocaleFile(primaryFile, primaryLocale),
-		...Object.values(localeFiles),
-	]);
+	const candidates = new Set(
+		[
+			originalFileNameFromLocaleFile(primaryFile, primaryLocale),
+			...Object.values(localeFiles),
+		].flatMap((fileName) => createPublicPathCandidates(fileName, base)),
+	);
 
 	return new RegExp(
-		`<script\\b([^>]*?)\\bsrc=["']/(?:${[...candidates].map(escapeRegExp).join('|')})["']([^>]*)></script>`,
+		`<script\\b([^>]*?)\\bsrc=["'](?:${[...candidates].map(escapeRegExp).join('|')})["']([^>]*)></script>`,
 		'u',
 	);
 }
@@ -2228,37 +2243,39 @@ function createLocaleLoaderFileName(originalFileName: string): string {
 	return originalFileName.replace(/(\.m?js)$/u, '.i18n-loader$1');
 }
 
-function createLocaleLoaderSource(localeFiles: Record<string, string>, primaryLocale: string): string {
+function createLocaleLoaderSource(localeFiles: Record<string, string>, primaryLocale: string, base: string): string {
 	return [
 		`const __vueInternationalizationLocale = new URL(window.location.href).searchParams.get("locale") || ${JSON.stringify(primaryLocale)};`,
-		`const __vueInternationalizationEntries = ${JSON.stringify(toAbsoluteLocaleFiles(localeFiles))};`,
+		`const __vueInternationalizationEntries = ${JSON.stringify(toPublicLocaleFiles(localeFiles, base))};`,
 		`import(__vueInternationalizationEntries[__vueInternationalizationLocale] || __vueInternationalizationEntries[${JSON.stringify(primaryLocale)}]);`,
 		'',
 	].join('\n');
 }
 
-function createLoaderScriptAttributes(beforeSrc: string, afterSrc: string, loaderFileName: string): string {
+function createLoaderScriptAttributes(beforeSrc: string, afterSrc: string, loaderFileName: string, base: string): string {
 	const attributes = removeScriptAttribute(`${beforeSrc}${afterSrc}`, 'src');
 	const withoutIntegrity = removeScriptAttribute(attributes, 'integrity');
 	const typeAttribute = hasScriptAttribute(withoutIntegrity, 'type') ? '' : ' type="module"';
 
-	return `${withoutIntegrity}${typeAttribute} src="/${loaderFileName}"`;
+	return `${withoutIntegrity}${typeAttribute} src="${toPublicPath(loaderFileName, base)}"`;
 }
 
 function injectLocaleLoaderScript(
 	html: string,
 	entry: InlineChunkManifest['entries'][number],
 	primaryLocale: string,
+	base: string,
 ): string {
 	const primaryFile = entry.locales[primaryLocale];
 	const loaderFileName = createLocaleLoaderFileName(originalFileNameFromLocaleFile(primaryFile, primaryLocale));
 	const cssLinks = (entry.css ?? [])
-		.map((fileName) => `<link rel="stylesheet" href="/${fileName}">`)
+		.map((fileName) => `<link rel="stylesheet" href="${toPublicPath(fileName, base)}">`)
 		.join('');
-	const script = `<script type="module" src="/${loaderFileName}"></script>`;
+	const loaderPath = toPublicPath(loaderFileName, base);
+	const script = `<script type="module" src="${loaderPath}"></script>`;
 	const injection = `${cssLinks}${script}`;
 
-	if (html.includes(`src="/${loaderFileName}"`) || html.includes(`src='/${loaderFileName}'`)) {
+	if (html.includes(`src="${loaderPath}"`) || html.includes(`src='${loaderPath}'`)) {
 		return html;
 	}
 
@@ -2286,8 +2303,32 @@ function hasScriptAttribute(attributes: string, name: string): boolean {
 	return new RegExp(`(?:^|\\s)${escapeRegExp(name)}(?:\\s*=|\\s|$)`, 'iu').test(attributes);
 }
 
-function toAbsoluteLocaleFiles(localeFiles: Record<string, string>): Record<string, string> {
-	return Object.fromEntries(Object.entries(localeFiles).map(([locale, fileName]) => [locale, `/${fileName}`]));
+function toPublicLocaleFiles(localeFiles: Record<string, string>, base: string): Record<string, string> {
+	return Object.fromEntries(Object.entries(localeFiles).map(([locale, fileName]) => [locale, toPublicPath(fileName, base)]));
+}
+
+function toPublicPath(fileName: string, base: string): string {
+	if (/^[a-z][a-z\d+\-.]*:/iu.test(base) || base.startsWith('//')) {
+		return new URL(fileName, base).toString();
+	}
+
+	if (base === '' || base === './') {
+		return `${base}${fileName}`;
+	}
+
+	return `${base.endsWith('/') ? base : `${base}/`}${fileName}`;
+}
+
+function createPublicPathCandidates(fileName: string, base: string): string[] {
+	const publicPath = toPublicPath(fileName, base);
+	const candidates = new Set([publicPath]);
+
+	if (base === '' || base === './') {
+		candidates.add(fileName);
+		candidates.add(`./${fileName}`);
+	}
+
+	return [...candidates];
 }
 
 function findManifestEntry(

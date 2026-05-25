@@ -92,6 +92,7 @@ export function vueInternationalization(options?: Partial<VueInternationalizatio
 	let command: 'build' | 'serve' = 'serve';
 	let inlineManifest: InlineChunkManifest | undefined;
 	let resolvedOptions: ResolvedVueInternationalizationOptions | undefined;
+	let base = '/';
 	let scanned = false;
 
 	function collectVueFile(filename: string, code: string): void {
@@ -161,6 +162,7 @@ export function vueInternationalization(options?: Partial<VueInternationalizatio
 		configResolved(config) {
 			root = config.root;
 			command = config.command;
+			base = config.base;
 			resolvedOptions = resolveOptions(root, options);
 		},
 		buildStart() {
@@ -250,6 +252,7 @@ export function vueInternationalization(options?: Partial<VueInternationalizatio
 					},
 				);
 				inlineLocaleHtml(bundle as Record<string, unknown>, inlineManifest, {
+					base,
 					emitAsset: asset => {
 						this.emitFile({
 							type: 'asset',
@@ -267,8 +270,8 @@ export function vueInternationalization(options?: Partial<VueInternationalizatio
 				return;
 			}
 
-			inlineLocaleHtml(bundle as Record<string, unknown>, inlineManifest);
-			rewriteWrittenHtml(resolve(root, outputOptions.dir ?? dirname(outputOptions.file ?? 'dist/index.js')), inlineManifest);
+			inlineLocaleHtml(bundle as Record<string, unknown>, inlineManifest, { base });
+			rewriteWrittenHtml(resolve(root, outputOptions.dir ?? dirname(outputOptions.file ?? 'dist/index.js')), inlineManifest, base);
 			rewriteWrittenViteManifest(resolve(root, outputOptions.dir ?? dirname(outputOptions.file ?? 'dist/index.js')), inlineManifest);
 		},
 	};
@@ -628,13 +631,13 @@ function transformVueSfcInline(code: string, filename: string, root: string, pri
 	});
 }
 
-function rewriteWrittenHtml(outDir: string, manifest: InlineChunkManifest): void {
+function rewriteWrittenHtml(outDir: string, manifest: InlineChunkManifest, base: string): void {
 	const writtenLoaders = new Set<string>();
 
 	for (const file of findHtmlFiles(outDir)) {
 		const html = readFileSync(file, 'utf8');
 		const fileName = relative(outDir, file);
-		for (const loader of getInlineLocaleHtmlLoaders(html, manifest, fileName)) {
+		for (const loader of getInlineLocaleHtmlLoaders(html, manifest, fileName, base)) {
 			if (writtenLoaders.has(loader.fileName)) {
 				continue;
 			}
@@ -643,7 +646,7 @@ function rewriteWrittenHtml(outDir: string, manifest: InlineChunkManifest): void
 			writtenLoaders.add(loader.fileName);
 		}
 
-		const next = replaceInlineLocaleHtml(html, manifest, fileName);
+		const next = replaceInlineLocaleHtml(html, manifest, fileName, base);
 
 		if (next !== html) {
 			writeFileSync(file, next);

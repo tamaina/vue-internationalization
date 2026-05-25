@@ -13,6 +13,7 @@
 - fix: Avoid preserving CSS-only preload proxy chunks as runtime imports in inline builds.
 - fix: Preserve static and dynamic import metadata when augmenting Vite manifests for inline builds.
 - fix: Inject inline locale loaders for Vite HTML entry builds that remove the original entry script.
+- fix: Respect Vite `base` when rewriting or injecting inline locale HTML loaders.
 - fix: Allow configured global locale files to live outside the package-local tsconfig directory.
 - feat: Add Volar `globalType: "runtime"` for large global dictionaries.
 - fix: Keep `globalType: "runtime"` permissive for nested global dictionary access.

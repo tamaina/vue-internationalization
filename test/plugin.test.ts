@@ -1227,6 +1227,40 @@ describe('virtual module generation', () => {
 		expect(bundle['index.html'].source).not.toContain('src="/assets/App-abc.js"');
 	});
 
+	it('rewrites html entry script and loader source with a configured base', () => {
+		const bundle: Record<string, {
+			type: string;
+			fileName: string;
+			source: string;
+		}> = {
+			'index.html': {
+				type: 'asset',
+				fileName: 'index.html',
+				source: '<div id="app"></div><script type="module" src="/app/assets/App-abc.js"></script>',
+			},
+		};
+
+		internals.inlineLocaleHtml(bundle, {
+			primaryLocale: 'ja-JP',
+			entries: [
+				{
+					fileName: 'assets/App-abc.ja-JP.js',
+					originalFileName: 'assets/App-abc.js',
+					locales: {
+						'ja-JP': 'assets/App-abc.ja-JP.js',
+						'en-US': 'assets/App-abc.en-US.js',
+					},
+				},
+			],
+		}, {
+			base: '/app/',
+		});
+
+		expect(bundle['index.html'].source).toContain('src="/app/assets/App-abc.i18n-loader.js"');
+		expect(bundle['assets/App-abc.i18n-loader.js'].source).toContain('"/app/assets/App-abc.en-US.js"');
+		expect(bundle['index.html'].source).not.toContain('src="/app/assets/App-abc.js"');
+	});
+
 	it('rewrites an html string with the external locale loader', () => {
 		const html = internals.replaceInlineLocaleHtml(
 			'<script type="module" crossorigin src="/assets/App-abc.js"></script>',
@@ -1284,6 +1318,33 @@ describe('virtual module generation', () => {
 		expect(html).toContain('href="/assets/App-abc.css"');
 		expect(html).toContain('src="/assets/App-abc.i18n-loader.js"');
 		expect(html).not.toContain('AsyncPanel-abc.i18n-loader.js');
+	});
+
+	it('injects fallback locale loader and css with a relative base', () => {
+		const html = internals.replaceInlineLocaleHtml(
+			'<div id="app"></div>',
+			{
+				primaryLocale: 'ja-JP',
+				entries: [
+					{
+						fileName: 'assets/App-abc.ja-JP.js',
+						originalFileName: 'assets/App-abc.js',
+						isEntry: true,
+						isDynamicEntry: false,
+						css: ['assets/App-abc.css'],
+						locales: {
+							'ja-JP': 'assets/App-abc.ja-JP.js',
+							'en-US': 'assets/App-abc.en-US.js',
+						},
+					},
+				],
+			},
+			undefined,
+			'./',
+		);
+
+		expect(html).toContain('href="./assets/App-abc.css"');
+		expect(html).toContain('src="./assets/App-abc.i18n-loader.js"');
 	});
 
 	it('injects only the matching html entry loader when Vite removes multiple html entry scripts', () => {
