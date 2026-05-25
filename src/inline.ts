@@ -220,7 +220,6 @@ const INLINE_TEXT_RE =
 	/(?:\b[A-Za-z_$][\w$]*\.)?__VUE_INTERNATIONALIZATION_INLINE_TEXT__\((?:"|&quot;)(__VUE_INTERNATIONALIZATION_INLINE__:[A-Za-z0-9+/=]+)(?:"|&quot;),(?:"|&quot;)((?:env|sfc)(?:\.[A-Za-z_$][\w$]*)+)(?:"|&quot;)\)/g;
 const INLINE_LOCALIZER_RE =
 	/(?:\b[A-Za-z_$][\w$]*\.)?__VUE_INTERNATIONALIZATION_INLINE_LOCALIZER__\((?:"|&quot;)(__VUE_INTERNATIONALIZATION_INLINE__:[A-Za-z0-9+/=]+)(?:"|&quot;),(?:"|&quot;)((?:env|sfc)(?:\.[A-Za-z_$][\w$]*)+)(?:"|&quot;),(\{[^)]*\})\)/g;
-const LOCALE_ACCESS_RE = /\$locale(?:\.value)?\.(env|sfc)((?:\.[A-Za-z_$][\w$]*)+)/g;
 const LOCALIZER_ACCESS_PREFIX_RE = /\$l(?:\.value)?\.(env|sfc)((?:\.[A-Za-z_$][\w$]*)+)\(/g;
 const VUE_DEFAULT_IMPORT_RE = /\bimport\s+([A-Za-z_$][\w$]*)\s+from\s+(["'])([^"']+\.vue(?:\?[^"']*)?)\2/g;
 
@@ -347,7 +346,7 @@ function createInlineTemplateAccessReplacement(
 	const dynamic = access.segments[dynamicIndex];
 	const suffix = access.segments.slice(dynamicIndex + 1);
 
-	if (dynamic?.type !== 'dynamic' || base.length === 0) {
+	if (dynamic.type !== 'dynamic' || base.length === 0) {
 		return undefined;
 	}
 
@@ -388,18 +387,6 @@ function replaceVueTemplateContent(code: string, replacer: (template: string) =>
 	const start = template.loc.start.offset;
 	const end = template.loc.end.offset;
 	return code.slice(0, start) + replacer(code.slice(start, end)) + code.slice(end);
-}
-
-function splitCallableLocalePath(pathExpression: string, end: number, source: string): { pathExpression: string; suffix: string } {
-	if (source[end] !== '(') {
-		return { pathExpression, suffix: '' };
-	}
-
-	const lastDot = pathExpression.lastIndexOf('.');
-
-	return lastDot > 0
-		? { pathExpression: pathExpression.slice(0, lastDot), suffix: pathExpression.slice(lastDot) }
-		: { pathExpression, suffix: '' };
 }
 
 function parseLocaleAccessSegments(source: string, start: number): ParsedLocaleAccess | undefined {
@@ -476,7 +463,7 @@ function parseStaticPropertyKey(expression: string): string | undefined {
 
 	if (singleQuoted) {
 		return singleQuoted[1]
-			.replaceAll("\\'", "'")
+			.replaceAll('\\\'', '\'')
 			.replaceAll('\\\\', '\\');
 	}
 }

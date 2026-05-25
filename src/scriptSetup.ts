@@ -48,7 +48,7 @@ function findScriptOpenTag(code: string, predicate: (tag: string) => boolean): {
 }
 
 function findOpenTagEnd(code: string, start: number): number | undefined {
-	let quote: '"' | "'" | undefined;
+	let quote: '"' | '\'' | undefined;
 
 	for (let index = start; index < code.length; index++) {
 		const char = code[index];
@@ -59,7 +59,7 @@ function findOpenTagEnd(code: string, start: number): number | undefined {
 			continue;
 		}
 
-		if (char === '"' || char === "'") {
+		if (char === '"' || char === '\'') {
 			quote = char;
 			continue;
 		}

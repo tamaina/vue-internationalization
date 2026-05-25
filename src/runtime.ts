@@ -2,7 +2,6 @@ import { Fragment, computed, defineComponent, hasInjectionContext, h, inject, re
 import { compileLocaleMessage, formatLocaleMessage } from './message.js';
 import type { App, ComputedRef, InjectionKey, PropType, VNodeChild } from 'vue';
 import type { LocaleMessageSyntax, LocaleMessageToken, LocaleMessageValues } from './message.js';
-import type { LocaleDictionary } from './types.js';
 
 /** Runtime dictionary shape used when generated types intentionally skip detailed keys. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
