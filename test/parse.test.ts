@@ -59,9 +59,73 @@ describe('locale SFC parsing', () => {
 		});
 
 		expect(output).toContain('const $locale = __useLocale<import("vite-vue-internationalization/runtime").RuntimeLocaleDictionary, {}>(import.meta.url);');
-		expect(output).toContain('const $l = __useLocalizer(import.meta.url) as Readonly<import("vue").ComputedRef<{ env: import("vite-vue-internationalization/runtime").LocaleLocalizerDictionary; sfc: import("vite-vue-internationalization/runtime").LocaleLocalizerDictionary; }>>;');
-		expect(output).toContain('$locale: __createComponentLocale<{}>(import.meta.url)');
-		expect(output).toContain('$l: __createComponentLocalizer(import.meta.url)');
+		expect(output).toContain('const $l = __useLocalizer(import.meta.url) as Readonly<import("vue").ComputedRef<{ env: import("vite-vue-internationalization/runtime").RuntimeLocaleLocalizerDictionary; sfc: import("vite-vue-internationalization/runtime").LocaleLocalizerDictionary; }>>;');
+		expect(output).not.toContain('$locale: __createComponentLocale');
+		expect(output).not.toContain('$l: __createComponentLocalizer');
+	});
+
+	it('does not inject setup bindings twice', () => {
+		const input = [
+			'<script setup lang="ts">',
+			'const x = 1;',
+			'</script>',
+			'<template>{{ $locale.env.title }}</template>',
+		].join('\n');
+
+		const output = transformVueSfc(input, '/repo/src/App.vue', {
+			global: {
+				title: 'App',
+			},
+			transformAll: true,
+		});
+
+		expect(output).toBeDefined();
+		expect(transformVueSfc(output ?? '', '/repo/src/App.vue', {
+			global: {
+				title: 'App',
+			},
+			transformAll: true,
+		})).toBeUndefined();
+	});
+
+	it('does not redeclare existing locale bindings', () => {
+		const input = [
+			'<script setup lang="ts">',
+			'import { $locale, $l } from "@/i18n";',
+			'</script>',
+			'<template>{{ $locale.env.title }} {{ $l.env.description({ value: 1 }) }}</template>',
+		].join('\n');
+
+		const output = transformVueSfc(input, '/repo/src/App.vue', {
+			global: {
+				title: 'App',
+				description: '{value}',
+			},
+			transformAll: true,
+		});
+
+		expect(output).toContain('import { $locale, $l } from "@/i18n";');
+		expect(output).not.toContain('const $locale = __useLocale');
+		expect(output).not.toContain('const $l = __useLocalizer');
+	});
+
+	it('preserves script setup generic attributes when injecting bindings', () => {
+		const input = [
+			'<script lang="ts" setup generic="T extends IPaginator<Misskey.entities.Note>">',
+			'import * as Misskey from "misskey-js";',
+			'import type { IPaginator } from "./paginator";',
+			'</script>',
+			'<template>{{ $locale.env.title }}</template>',
+		].join('\n');
+
+		const output = transformVueSfc(input, '/repo/src/App.vue', {
+			transformAll: true,
+		});
+
+		expect(output).toContain('<script lang="ts" setup generic="T extends IPaginator<Misskey.entities.Note>">');
+		expect(output).toContain('const $locale = __useLocale<');
+		expect(output).not.toContain('Note>\nimport { useLocale');
+		expect(() => compileScript(parseSfc(output ?? '', { filename: 'App.vue' }).descriptor, { id: 'generic' })).not.toThrow();
 	});
 
 	it('attaches SFC locale accessors to the component default export', () => {
@@ -152,7 +216,7 @@ describe('locale SFC parsing', () => {
 		});
 
 		expect(output).toContain('const $locale = __useLocale<import("vite-vue-internationalization/runtime").RuntimeLocaleDictionary, { hoge: string; nested: { count: number; }; }>');
-		expect(output).toContain('const $l = __useLocalizer(import.meta.url) as Readonly<import("vue").ComputedRef<{ env: import("vite-vue-internationalization/runtime").LocaleLocalizerDictionary; sfc: { hoge: () => string; nested: { count: () => string; }; }; }>>;');
+		expect(output).toContain('const $l = __useLocalizer(import.meta.url) as Readonly<import("vue").ComputedRef<{ env: import("vite-vue-internationalization/runtime").RuntimeLocaleLocalizerDictionary; sfc: { hoge: () => string; nested: { count: () => string; }; }; }>>;');
 		expect(output).not.toContain('{ fuga: string; }');
 		expect(output).not.toContain('env: { fuga: () => string; };');
 	});
@@ -241,7 +305,7 @@ describe('locale SFC parsing', () => {
 			},
 		});
 
-		expect(output).toContain('env: import("vite-vue-internationalization/runtime").LocaleLocalizerDictionary;');
+		expect(output).toContain('env: import("vite-vue-internationalization/runtime").RuntimeLocaleLocalizerDictionary;');
 		expect(output).not.toContain('env: { greeting: import("vite-vue-internationalization/runtime").LocaleMessageFunction; };');
 	});
 

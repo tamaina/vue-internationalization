@@ -1,0 +1,4 @@
+interface:
+  display_name: "Release With Dispatch"
+  short_description: "Dispatch repository release workflows safely."
+  default_prompt: "Run the release-with-dispatch workflow for this repository after checking the release state."

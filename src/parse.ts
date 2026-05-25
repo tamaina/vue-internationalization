@@ -186,6 +186,13 @@ export function stripLocaleBlocks(code: string, filename: string): string {
 }
 
 export function injectLocaleBinding(code: string, types: LocaleBindingTypes = {}): string {
+	const needsLocaleBinding = !hasLocaleBinding(code, '$locale');
+	const needsLocalizerBinding = !hasLocaleBinding(code, '$l');
+
+	if (!needsLocaleBinding && !needsLocalizerBinding) {
+		return code;
+	}
+
 	const setupOpenTag = getScriptSetupOpenTag(code);
 	const scriptOpenTag = getScriptOpenTag(code);
 	const shouldInjectTypes = setupOpenTag
@@ -196,15 +203,25 @@ export function injectLocaleBinding(code: string, types: LocaleBindingTypes = {}
 	const injection = [
 		'',
 		'import { useLocale as __useLocale, useLocalizer as __useLocalizer } from "virtual:vite-vue-internationalization";',
-		`const $locale = __useLocale${typeParameters}(import.meta.url);`,
-		`const $l = __useLocalizer(import.meta.url)${localizerType};`,
+		needsLocaleBinding ? `const $locale = __useLocale${typeParameters}(import.meta.url);` : '',
+		needsLocalizerBinding ? `const $l = __useLocalizer(import.meta.url)${localizerType};` : '',
 		'',
-	].join('\n');
+	].filter((line, index, lines) => line.length > 0 || index === 0 || index === lines.length - 1).join('\n');
 
 	return injectScriptSetup(code, injection);
 }
 
+export function hasLocaleBinding(code: string, name: '$locale' | '$l'): boolean {
+	const escaped = name.replace('$', '\\$');
+	return new RegExp(`\\b(?:const|let|var)\\s+${escaped}\\b`).test(code) ||
+		new RegExp(`\\bimport\\s*\\{[^}]*${escaped}(?:\\s+as\\s+[A-Za-z_$][\\w$]*)?[^}]*\\}\\s*from\\s*["'][^"']+["']`).test(code);
+}
+
 export function transformVueSfc(code: string, filename: string, types: LocaleBindingTypes = {}): string | undefined {
+	if (hasInjectedLocaleBinding(code)) {
+		return undefined;
+	}
+
 	const parsed = parseVueLocales(code, filename);
 
 	if (!types.transformAll && parsed.blocks.length === 0 && Object.keys(parsed.scriptMessages).length === 0) {
@@ -215,8 +232,22 @@ export function transformVueSfc(code: string, filename: string, types: LocaleBin
 		...types,
 		module: getPrimaryLocaleDictionary(parsed.blocks, types.primaryLocale, parsed.scriptMessages),
 	};
+	const withSetupBinding = injectLocaleBinding(stripLocaleBlocks(code, filename), bindingTypes);
 
-	return injectComponentLocaleOptions(injectLocaleBinding(stripLocaleBlocks(code, filename), bindingTypes), filename, bindingTypes);
+	if (!hasLocaleDictionaryEntries(bindingTypes.module)) {
+		return withSetupBinding;
+	}
+
+	return injectComponentLocaleOptions(withSetupBinding, filename, bindingTypes);
+}
+
+export function hasLocaleDictionaryEntries(dictionary: LocaleDictionary | undefined): boolean {
+	return dictionary != null && Object.keys(dictionary).length > 0;
+}
+
+export function hasInjectedLocaleBinding(code: string): boolean {
+	return code.includes('virtual:vite-vue-internationalization') &&
+		code.includes('const $locale = __useLocale');
 }
 
 export function normalizeModuleId(id: string): string {

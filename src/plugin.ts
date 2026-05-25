@@ -21,6 +21,8 @@ import {
 	injectLocaleBinding,
 	injectComponentLocaleOptions,
 	getPrimaryLocaleDictionary,
+	hasLocaleDictionaryEntries,
+	hasInjectedLocaleBinding,
 	mergeLocaleDictionaries,
 	parseLocaleDictionary,
 	parseVueLocales,
@@ -90,6 +92,7 @@ export function vueInternationalization(options?: Partial<VueInternationalizatio
 	let command: 'build' | 'serve' = 'serve';
 	let inlineManifest: InlineChunkManifest | undefined;
 	let resolvedOptions: ResolvedVueInternationalizationOptions | undefined;
+	let base = '/';
 	let scanned = false;
 
 	function collectVueFile(filename: string, code: string): void {
@@ -159,6 +162,7 @@ export function vueInternationalization(options?: Partial<VueInternationalizatio
 		configResolved(config) {
 			root = config.root;
 			command = config.command;
+			base = config.base;
 			resolvedOptions = resolveOptions(root, options);
 		},
 		buildStart() {
@@ -237,8 +241,26 @@ export function vueInternationalization(options?: Partial<VueInternationalizatio
 					modules,
 					globalMessages,
 					currentOptions.messageSyntax,
+					{
+						emitChunk: chunk => {
+							this.emitFile({
+								type: 'asset',
+								fileName: chunk.fileName,
+								source: chunk.code,
+							});
+						},
+					},
 				);
-				inlineLocaleHtml(bundle as Record<string, unknown>, inlineManifest);
+				inlineLocaleHtml(bundle as Record<string, unknown>, inlineManifest, {
+					base,
+					emitAsset: asset => {
+						this.emitFile({
+							type: 'asset',
+							fileName: asset.fileName,
+							source: asset.source,
+						});
+					},
+				});
 			}
 		},
 		writeBundle(outputOptions, bundle) {
@@ -248,8 +270,8 @@ export function vueInternationalization(options?: Partial<VueInternationalizatio
 				return;
 			}
 
-			inlineLocaleHtml(bundle as Record<string, unknown>, inlineManifest);
-			rewriteWrittenHtml(resolve(root, outputOptions.dir ?? dirname(outputOptions.file ?? 'dist/index.js')), inlineManifest);
+			inlineLocaleHtml(bundle as Record<string, unknown>, inlineManifest, { base });
+			rewriteWrittenHtml(resolve(root, outputOptions.dir ?? dirname(outputOptions.file ?? 'dist/index.js')), inlineManifest, base);
 			rewriteWrittenViteManifest(resolve(root, outputOptions.dir ?? dirname(outputOptions.file ?? 'dist/index.js')), inlineManifest);
 		},
 	};
@@ -577,6 +599,10 @@ function toRuntimeModuleId(filename: string, root: string): string {
 }
 
 function transformVueSfcInline(code: string, filename: string, root: string, primaryLocale?: string, transformAll = false): string | undefined {
+	if (hasInjectedLocaleBinding(code) || code.includes('__VUE_INTERNATIONALIZATION_INLINE_LOCALE__')) {
+		return undefined;
+	}
+
 	const parsed = parseVueLocales(code, filename);
 
 	if (!transformAll && parsed.blocks.length === 0 && Object.keys(parsed.scriptMessages).length === 0) {
@@ -587,10 +613,17 @@ function transformVueSfcInline(code: string, filename: string, root: string, pri
 	const marker = createInlineLocaleMarker(moduleId);
 	const stripped = stripLocaleBlocks(code, filename);
 	const rewrittenComponentAccess = rewriteInlineComponentLocaleAccess(stripped, filename, root);
-	const withSetupBinding = injectInlineLocaleBinding(rewriteInlineLocaleTemplateAccess(rewrittenComponentAccess, moduleId), moduleId);
+	const rewrittenLocaleAccess = rewriteInlineLocaleTemplateAccess(rewrittenComponentAccess, moduleId);
+	const moduleDictionary = getPrimaryLocaleDictionary(parsed.blocks, primaryLocale, parsed.scriptMessages);
+
+	if (!hasLocaleDictionaryEntries(moduleDictionary)) {
+		return rewrittenLocaleAccess;
+	}
+
+	const withSetupBinding = injectInlineLocaleBinding(rewrittenLocaleAccess, moduleId);
 
 	return injectComponentLocaleOptions(withSetupBinding, filename, {
-		module: getPrimaryLocaleDictionary(parsed.blocks, primaryLocale, parsed.scriptMessages),
+		module: moduleDictionary,
 	}, {
 		importLine: '',
 		localeExpression: `__VUE_INTERNATIONALIZATION_INLINE_LOCALE__(${JSON.stringify(marker)}).sfc`,
@@ -598,12 +631,13 @@ function transformVueSfcInline(code: string, filename: string, root: string, pri
 	});
 }
 
-function rewriteWrittenHtml(outDir: string, manifest: InlineChunkManifest): void {
+function rewriteWrittenHtml(outDir: string, manifest: InlineChunkManifest, base: string): void {
 	const writtenLoaders = new Set<string>();
 
 	for (const file of findHtmlFiles(outDir)) {
 		const html = readFileSync(file, 'utf8');
-		for (const loader of getInlineLocaleHtmlLoaders(html, manifest)) {
+		const fileName = relative(outDir, file);
+		for (const loader of getInlineLocaleHtmlLoaders(html, manifest, fileName, base)) {
 			if (writtenLoaders.has(loader.fileName)) {
 				continue;
 			}
@@ -612,7 +646,7 @@ function rewriteWrittenHtml(outDir: string, manifest: InlineChunkManifest): void
 			writtenLoaders.add(loader.fileName);
 		}
 
-		const next = replaceInlineLocaleHtml(html, manifest);
+		const next = replaceInlineLocaleHtml(html, manifest, fileName, base);
 
 		if (next !== html) {
 			writeFileSync(file, next);

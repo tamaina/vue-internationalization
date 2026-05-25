@@ -140,10 +140,14 @@ describe('virtual module generation', () => {
 		}
 	});
 
-	it('rejects env dictionary paths outside the project root', () => {
+	it('resolves env dictionary paths outside the project root', () => {
 		const root = mkdtempSync(join(tmpdir(), 'vite-vue-internationalization-'));
+		const outside = join(root, '../outside.yaml');
+		writeFileSync(outside, 'title: outside\n');
 
-		expect(() => internals.loadLocaleEnvDictionary(root, 'ja-JP', '../outside.yaml')).toThrow('must resolve inside');
+		expect(internals.loadLocaleEnvDictionary(root, 'ja-JP', '../outside.yaml')).toEqual({
+			title: 'outside',
+		});
 	});
 
 	it('rejects unsafe locale dictionary keys', () => {
@@ -284,9 +288,34 @@ describe('virtual module generation', () => {
 			'</script>',
 		].join('\n'), '/repo/src/App.vue', '/repo', 'ja-JP', true);
 
-		expect(output).toContain('__VUE_INTERNATIONALIZATION_INLINE_LOCALE__');
 		expect(output).toContain('__VUE_INTERNATIONALIZATION_INLINE_TEXT__');
-		expect(output).toContain('$locale: __VUE_INTERNATIONALIZATION_INLINE_LOCALE__');
+		expect(output).not.toContain('$locale: __VUE_INTERNATIONALIZATION_INLINE_LOCALE__');
+		expect(output).not.toContain('const $locale = __VUE_INTERNATIONALIZATION_INLINE_LOCALE__');
+	});
+
+	it('does not inject inline bindings twice', () => {
+		const output = internals.transformVueSfcInline([
+			'<template>{{ $locale.env.title }}</template>',
+			'<script setup lang="ts">',
+			'const count = 1;',
+			'</script>',
+		].join('\n'), '/repo/src/App.vue', '/repo', 'ja-JP', true);
+
+		expect(output).toBeDefined();
+		expect(internals.transformVueSfcInline(output ?? '', '/repo/src/App.vue', '/repo', 'ja-JP', true)).toBe(output);
+	});
+
+	it('does not redeclare existing inline locale bindings', () => {
+		const output = internals.transformVueSfcInline([
+			'<template>{{ $locale.env.title }}</template>',
+			'<script setup lang="ts">',
+			'import { $locale, $l } from "@/i18n";',
+			'</script>',
+		].join('\n'), '/repo/src/App.vue', '/repo', 'ja-JP', true);
+
+		expect(output).toContain('import { $locale, $l } from "@/i18n";');
+		expect(output).not.toContain('const $locale = __VUE_INTERNATIONALIZATION_INLINE_LOCALE__');
+		expect(output).not.toContain('const $l = __VUE_INTERNATIONALIZATION_INLINE_LOCALIZERS__');
 	});
 
 	it('replaces script member access from inline locale bindings', () => {
@@ -513,6 +542,112 @@ describe('virtual module generation', () => {
 		expect(compiled.code).toContain('_ctx.__VUE_INTERNATIONALIZATION_INLINE_LOCALIZER__("__VUE_INTERNATIONALIZATION_INLINE__:L3NyYy9BcHAudnVl","sfc.nApples",{ n: Math.max(_ctx.n, 1) })');
 	});
 
+	it('rewrites locale access after nested template slots', () => {
+		const code = internals.rewriteInlineLocaleTemplateAccess([
+			'<template>',
+			'  <Panel>',
+			'    <template #label>{{ $locale.env.label }}</template>',
+			'    <span>{{ $locale.env.afterSlot }}</span>',
+			'  </Panel>',
+			'</template>',
+		].join('\n'), '/src/App.vue');
+
+		expect(code).toContain('&quot;env.label&quot;');
+		expect(code).toContain('&quot;env.afterSlot&quot;');
+		expect(code).not.toContain('$locale.env.label');
+		expect(code).not.toContain('$locale.env.afterSlot');
+	});
+
+	it('rewrites locale access before method calls without consuming the method name', () => {
+		const code = internals.rewriteInlineLocaleTemplateAccess(
+			'<template><div v-html="$locale.env.description.replaceAll(\'\\n\', \'<br>\')"></div></template>',
+			'/src/App.vue',
+		);
+		const compiled = compileTemplate({ source: code, filename: '/src/App.vue', id: 'test' });
+		const replaced = internals.replaceInlineLocaleMarkers(
+			compiled.code,
+			'ja-JP',
+			'ja-JP',
+			'vue',
+			{},
+			{
+				'ja-JP': {
+					description: 'line 1\nline 2',
+				},
+			},
+		);
+
+		expect(code).toContain('&quot;env.description&quot;');
+		expect(code).toContain('.replaceAll');
+		expect(replaced).toContain('"line 1\\nline 2".replaceAll');
+		expect(replaced).not.toContain('$locale.env.description.replaceAll');
+	});
+
+	it('rewrites static computed locale access', () => {
+		const code = internals.rewriteInlineLocaleTemplateAccess(
+			'<template><p>{{ $locale.env[`2fa`] }} {{ $locale.env["token"] }} {{ $locale.env[\'password\'] }}</p></template>',
+			'/src/App.vue',
+		);
+		const compiled = compileTemplate({ source: code, filename: '/src/App.vue', id: 'test' });
+		const replaced = internals.replaceInlineLocaleMarkers(
+			compiled.code,
+			'ja-JP',
+			'ja-JP',
+			'vue',
+			{},
+			{
+				'ja-JP': {
+					'2fa': '二要素認証',
+					token: 'トークン',
+					password: 'パスワード',
+				},
+			},
+		);
+
+		expect(code).toContain('&quot;env.2fa&quot;');
+		expect(code).toContain('&quot;env.token&quot;');
+		expect(code).toContain('&quot;env.password&quot;');
+		expect(replaced).not.toContain('$locale.env');
+	});
+
+	it('rewrites dynamic computed locale access to subtree lookups', () => {
+		const code = internals.rewriteInlineLocaleTemplateAccess(
+			'<template><p>{{ $locale.env._permissions[p] ?? p }}</p><p>{{ $locale.env._achievements._types[`_${achievement}`].title }}</p></template>',
+			'/src/App.vue',
+		);
+		const compiled = compileTemplate({ source: code, filename: '/src/App.vue', id: 'test' });
+		const replaced = internals.replaceInlineLocaleMarkers(
+			compiled.code,
+			'ja-JP',
+			'ja-JP',
+			'vue',
+			{},
+			{
+				'ja-JP': {
+					_permissions: {
+						read: '読む',
+						write: '書く',
+					},
+					_achievements: {
+						_types: {
+							_login: {
+								title: 'ログイン',
+								description: 'ログインした',
+							},
+						},
+					},
+				},
+			},
+		);
+
+		expect(code).toContain('__VUE_INTERNATIONALIZATION_INLINE_LOOKUP__');
+		expect(replaced).toContain('"read":"読む"');
+		expect(replaced).toContain('"write":"書く"');
+		expect(replaced).toContain('"_login":"ログイン"');
+		expect(replaced).not.toContain('__VUE_INTERNATIONALIZATION_INLINE_');
+		expect(replaced).not.toContain('$locale.env');
+	});
+
 	it('rewrites locale-only SFC static access in scripts and templates for inline chunks', () => {
 		const root = mkdtempSync(join(tmpdir(), 'vite-vue-internationalization-'));
 		mkdirSync(join(root, 'src'), { recursive: true });
@@ -579,6 +714,52 @@ describe('virtual module generation', () => {
 		expect(replaced).toContain('const body = ((__values) => "From " + ((typeof __values === "number" ? (undefined) : __values?.["source"]) ?? "{source}"))({ source });');
 		expect(replaced).not.toContain('Messages.$locale');
 		expect(replaced).not.toContain('Messages.$l');
+	});
+
+	it('replaces inline marker calls with template literal arguments', () => {
+		const marker = internals.injectInlineLocaleBinding('<script setup></script>', '/src/App.vue').match(/"(__VUE_INTERNATIONALIZATION_INLINE__:[^"]+)"/)?.[1];
+		const code = [
+			`const title = ctx.__VUE_INTERNATIONALIZATION_INLINE_TEXT__(\`${marker}\`, \`env.title\`);`,
+			`const body = ctx.__VUE_INTERNATIONALIZATION_INLINE_LOCALIZER__(\`${marker}\`, \`env.body\`, { count: 2 });`,
+		].join('\n');
+		const replaced = internals.replaceInlineLocaleMarkers(
+			code,
+			'ja-JP',
+			'ja-JP',
+			'vue',
+			{},
+			{
+				'ja-JP': {
+					title: 'タイトル',
+					body: '{count} 件',
+				},
+			},
+		);
+
+		expect(replaced).toContain('const title = "タイトル";');
+		expect(replaced).toContain('" 件"');
+		expect(replaced).not.toContain('__VUE_INTERNATIONALIZATION_INLINE_');
+	});
+
+	it('replaces inline marker calls nested in localizer values', () => {
+		const marker = internals.injectInlineLocaleBinding('<script setup></script>', '/src/App.vue').match(/"(__VUE_INTERNATIONALIZATION_INLINE__:[^"]+)"/)?.[1];
+		const code = `const body = ctx.__VUE_INTERNATIONALIZATION_INLINE_LOCALIZER__(\`${marker}\`, \`env.body\`, { ok: ctx.__VUE_INTERNATIONALIZATION_INLINE_TEXT__(\`${marker}\`, \`env.ok\`) });`;
+		const replaced = internals.replaceInlineLocaleMarkers(
+			code,
+			'ja-JP',
+			'ja-JP',
+			'vue',
+			{},
+			{
+				'ja-JP': {
+					body: '[{ok}] をクリックしてください',
+					ok: 'OK',
+				},
+			},
+		);
+
+		expect(replaced).toContain('ok: "OK"');
+		expect(replaced).not.toContain('__VUE_INTERNATIONALIZATION_INLINE_');
 	});
 
 	it('does not rewrite static access for component SFC imports with script setup', () => {
@@ -796,6 +977,220 @@ describe('virtual module generation', () => {
 		expect(bundle['assets/App.en-US.js'].code).toContain('./AsyncPanel.en-US.js');
 	});
 
+	it('rewrites preload dependency references between localized chunks', () => {
+		const appMarker = internals.injectInlineLocaleBinding('<script setup></script>', '/src/App.vue');
+		const childMarker = internals.injectInlineLocaleBinding('<script setup></script>', '/src/AsyncPanel.vue');
+		const appCode = appMarker.match(/const \$locale = (.*);/)?.[1];
+		const childCode = childMarker.match(/const \$locale = (.*);/)?.[1];
+		const bundle: Record<string, {
+			type: string;
+			fileName: string;
+			code: string;
+			imports: string[];
+			dynamicImports: string[];
+		}> = {
+			'assets/App.js': {
+				type: 'chunk',
+				fileName: 'assets/App.js',
+				code: `const msg = ${appCode}; preload(() => import("./AsyncPanel.js").then((module) => module.default), __VITE_PRELOAD__);`,
+				imports: [],
+				dynamicImports: [],
+			},
+			'assets/AsyncPanel.js': {
+				type: 'chunk',
+				fileName: 'assets/AsyncPanel.js',
+				code: `const msg = ${childCode};`,
+				imports: [],
+				dynamicImports: [],
+			},
+		};
+
+		internals.inlineLocaleChunks(
+			bundle,
+			['en-US', 'ja-JP'],
+			'ja-JP',
+			{
+				'/src/App.vue': {
+					'ja-JP': { title: '親' },
+					'en-US': { title: 'Parent' },
+				},
+				'/src/AsyncPanel.vue': {
+					'ja-JP': { title: '子' },
+					'en-US': { title: 'Child' },
+				},
+			},
+			{},
+		);
+
+		expect(bundle['assets/App.ja-JP.js'].code).not.toContain('__VITE_PRELOAD__');
+		expect(bundle['assets/App.en-US.js'].code).not.toContain('__VITE_PRELOAD__');
+		expect(bundle['assets/App.ja-JP.js'].code).toContain('./AsyncPanel.ja-JP.js');
+		expect(bundle['assets/App.en-US.js'].code).toContain('./AsyncPanel.en-US.js');
+		expect(bundle['assets/App.ja-JP.js'].code).toContain('.then((module) => module.default)');
+		expect(bundle['assets/App.ja-JP.js'].code).toContain('"assets/AsyncPanel.ja-JP.js"');
+		expect(bundle['assets/App.en-US.js'].code).toContain('"assets/AsyncPanel.en-US.js"');
+		expect(bundle['assets/App.ja-JP.js'].code).not.toContain('"AsyncPanel.js"');
+		expect(bundle['assets/App.en-US.js'].code).not.toContain('"AsyncPanel.js"');
+	});
+
+	it('rewrites css-only preload proxy imports without keeping the proxy chunk as a dependency', () => {
+		const appMarker = internals.injectInlineLocaleBinding('<script setup></script>', '/src/App.vue');
+		const appCode = appMarker.match(/const \$locale = (.*);/)?.[1];
+		const bundle: Record<string, {
+			type: string;
+			fileName: string;
+			code: string;
+			imports: string[];
+			dynamicImports: string[];
+			viteMetadata?: {
+				importedAssets?: Set<string>;
+				importedCss?: Set<string>;
+			};
+		}> = {
+			'assets/App.js': {
+				type: 'chunk',
+				fileName: 'assets/App.js',
+				code: `const msg = ${appCode}; preload(() => import("./style-proxy.js"), __VITE_PRELOAD__);`,
+				imports: [],
+				dynamicImports: [],
+			},
+			'assets/style-proxy.js': {
+				type: 'chunk',
+				fileName: 'assets/style-proxy.js',
+				code: '',
+				imports: [],
+				dynamicImports: [],
+				viteMetadata: {
+					importedCss: new Set(['assets/style.css']),
+					importedAssets: new Set(['assets/font.woff2']),
+				},
+			},
+		};
+
+		internals.inlineLocaleChunks(
+			bundle,
+			['ja-JP'],
+			'ja-JP',
+			{
+				'/src/App.vue': {
+					'ja-JP': { title: '親' },
+				},
+			},
+			{},
+		);
+
+		expect(bundle['assets/App.ja-JP.js'].code).toContain('Promise.resolve({})');
+		expect(bundle['assets/App.ja-JP.js'].code).toContain('"assets/style.css"');
+		expect(bundle['assets/App.ja-JP.js'].code).toContain('"assets/font.woff2"');
+		expect(bundle['assets/App.ja-JP.js'].code).not.toContain('style-proxy');
+	});
+
+	it('localizes chunks that reference localized chunks', () => {
+		const appMarker = internals.injectInlineLocaleBinding('<script setup></script>', '/src/App.vue');
+		const childMarker = internals.injectInlineLocaleBinding('<script setup></script>', '/src/AsyncPanel.vue');
+		const appCode = appMarker.match(/const \$locale = (.*);/)?.[1];
+		const childCode = childMarker.match(/const \$locale = (.*);/)?.[1];
+		const bundle: Record<string, {
+			type: string;
+			fileName: string;
+			code: string;
+			imports: string[];
+			dynamicImports: string[];
+		}> = {
+			'assets/App.js': {
+				type: 'chunk',
+				fileName: 'assets/App.js',
+				code: `const msg = ${appCode}; import("./Router.js");`,
+				imports: [],
+				dynamicImports: ['assets/Router.js'],
+			},
+			'assets/Router.js': {
+				type: 'chunk',
+				fileName: 'assets/Router.js',
+				code: 'preload(() => import("./AsyncPanel.js"), ["AsyncPanel.js"]);',
+				imports: [],
+				dynamicImports: [],
+			},
+			'assets/AsyncPanel.js': {
+				type: 'chunk',
+				fileName: 'assets/AsyncPanel.js',
+				code: `const msg = ${childCode};`,
+				imports: [],
+				dynamicImports: [],
+			},
+		};
+
+		internals.inlineLocaleChunks(
+			bundle,
+			['en-US', 'ja-JP'],
+			'ja-JP',
+			{
+				'/src/App.vue': {
+					'ja-JP': { title: '親' },
+					'en-US': { title: 'Parent' },
+				},
+				'/src/AsyncPanel.vue': {
+					'ja-JP': { title: '子' },
+					'en-US': { title: 'Child' },
+				},
+			},
+			{},
+		);
+
+		expect(bundle['assets/App.ja-JP.js'].code).toContain('./Router.ja-JP.js');
+		expect(bundle['assets/Router.ja-JP.js'].code).toContain('"AsyncPanel.ja-JP.js"');
+		expect(bundle['assets/Router.en-US.js'].code).toContain('"AsyncPanel.en-US.js"');
+		expect(bundle['assets/Router.js']).toBeUndefined();
+	});
+
+	it('can emit localized chunks without assigning to the output bundle', () => {
+		const marker = internals.injectInlineLocaleBinding('<script setup></script>', '/src/App.vue');
+		const code = marker.match(/const \$locale = (.*);/)?.[1];
+		const emitted: Array<{ fileName: string; code: string }> = [];
+		const bundle: Record<string, {
+			type: string;
+			fileName: string;
+			code: string;
+			imports: string[];
+			dynamicImports: string[];
+		}> = {
+			'assets/App.js': {
+				type: 'chunk',
+				fileName: 'assets/App.js',
+				code: `const msg = ${code};`,
+				imports: [],
+				dynamicImports: [],
+			},
+		};
+
+		internals.inlineLocaleChunks(
+			bundle,
+			['en-US', 'ja-JP'],
+			'ja-JP',
+			{
+				'/src/App.vue': {
+					'ja-JP': { title: 'ほげ' },
+					'en-US': { title: 'Title' },
+				},
+			},
+			{},
+			'vue',
+			{
+				emitChunk: chunk => emitted.push({
+					fileName: chunk.fileName,
+					code: chunk.code,
+				}),
+			},
+		);
+
+		expect(bundle['assets/App.js']).toBeUndefined();
+		expect(emitted.map(chunk => chunk.fileName).sort()).toEqual([
+			'assets/App.en-US.js',
+			'assets/App.ja-JP.js',
+		]);
+		expect(emitted.find(chunk => chunk.fileName.endsWith('.en-US.js'))?.code).toContain('"title":"Title"');
+	});
+
 	it('rewrites html entry script to an external locale loader', () => {
 		const bundle: Record<string, {
 			type: string;
@@ -832,6 +1227,40 @@ describe('virtual module generation', () => {
 		expect(bundle['index.html'].source).not.toContain('src="/assets/App-abc.js"');
 	});
 
+	it('rewrites html entry script and loader source with a configured base', () => {
+		const bundle: Record<string, {
+			type: string;
+			fileName: string;
+			source: string;
+		}> = {
+			'index.html': {
+				type: 'asset',
+				fileName: 'index.html',
+				source: '<div id="app"></div><script type="module" src="/app/assets/App-abc.js"></script>',
+			},
+		};
+
+		internals.inlineLocaleHtml(bundle, {
+			primaryLocale: 'ja-JP',
+			entries: [
+				{
+					fileName: 'assets/App-abc.ja-JP.js',
+					originalFileName: 'assets/App-abc.js',
+					locales: {
+						'ja-JP': 'assets/App-abc.ja-JP.js',
+						'en-US': 'assets/App-abc.en-US.js',
+					},
+				},
+			],
+		}, {
+			base: '/app/',
+		});
+
+		expect(bundle['index.html'].source).toContain('src="/app/assets/App-abc.i18n-loader.js"');
+		expect(bundle['assets/App-abc.i18n-loader.js'].source).toContain('"/app/assets/App-abc.en-US.js"');
+		expect(bundle['index.html'].source).not.toContain('src="/app/assets/App-abc.js"');
+	});
+
 	it('rewrites an html string with the external locale loader', () => {
 		const html = internals.replaceInlineLocaleHtml(
 			'<script type="module" crossorigin src="/assets/App-abc.js"></script>',
@@ -855,14 +1284,122 @@ describe('virtual module generation', () => {
 		expect(html).not.toContain('__vueInternationalizationLocale');
 	});
 
+	it('injects the external locale loader when Vite removes the original html entry script', () => {
+		const html = internals.replaceInlineLocaleHtml(
+			'<div id="app"></div>',
+			{
+				primaryLocale: 'ja-JP',
+				entries: [
+					{
+						fileName: 'assets/App-abc.ja-JP.js',
+						originalFileName: 'assets/App-abc.js',
+						isEntry: true,
+						isDynamicEntry: false,
+						css: ['assets/App-abc.css'],
+						locales: {
+							'ja-JP': 'assets/App-abc.ja-JP.js',
+							'en-US': 'assets/App-abc.en-US.js',
+						},
+					},
+					{
+						fileName: 'assets/AsyncPanel-abc.ja-JP.js',
+						originalFileName: 'assets/AsyncPanel-abc.js',
+						isEntry: false,
+						isDynamicEntry: true,
+						locales: {
+							'ja-JP': 'assets/AsyncPanel-abc.ja-JP.js',
+							'en-US': 'assets/AsyncPanel-abc.en-US.js',
+						},
+					},
+				],
+			},
+		);
+
+		expect(html).toContain('href="/assets/App-abc.css"');
+		expect(html).toContain('src="/assets/App-abc.i18n-loader.js"');
+		expect(html).not.toContain('AsyncPanel-abc.i18n-loader.js');
+	});
+
+	it('injects fallback locale loader and css with a relative base', () => {
+		const html = internals.replaceInlineLocaleHtml(
+			'<div id="app"></div>',
+			{
+				primaryLocale: 'ja-JP',
+				entries: [
+					{
+						fileName: 'assets/App-abc.ja-JP.js',
+						originalFileName: 'assets/App-abc.js',
+						isEntry: true,
+						isDynamicEntry: false,
+						css: ['assets/App-abc.css'],
+						locales: {
+							'ja-JP': 'assets/App-abc.ja-JP.js',
+							'en-US': 'assets/App-abc.en-US.js',
+						},
+					},
+				],
+			},
+			undefined,
+			'./',
+		);
+
+		expect(html).toContain('href="./assets/App-abc.css"');
+		expect(html).toContain('src="./assets/App-abc.i18n-loader.js"');
+	});
+
+	it('injects only the matching html entry loader when Vite removes multiple html entry scripts', () => {
+		const html = internals.replaceInlineLocaleHtml(
+			'<div id="admin"></div>',
+			{
+				primaryLocale: 'ja-JP',
+				entries: [
+					{
+						fileName: 'assets/App-abc.ja-JP.js',
+						originalFileName: 'assets/App-abc.js',
+						facadeModuleId: '/project/index.html',
+						isEntry: true,
+						isDynamicEntry: false,
+						locales: {
+							'ja-JP': 'assets/App-abc.ja-JP.js',
+							'en-US': 'assets/App-abc.en-US.js',
+						},
+					},
+					{
+						fileName: 'assets/Admin-abc.ja-JP.js',
+						originalFileName: 'assets/Admin-abc.js',
+						facadeModuleId: '/project/admin/index.html',
+						isEntry: true,
+						isDynamicEntry: false,
+						locales: {
+							'ja-JP': 'assets/Admin-abc.ja-JP.js',
+							'en-US': 'assets/Admin-abc.en-US.js',
+						},
+					},
+				],
+			},
+			'admin/index.html',
+		);
+
+		expect(html).toContain('src="/assets/Admin-abc.i18n-loader.js"');
+		expect(html).not.toContain('App-abc.i18n-loader.js');
+	});
+
 	it('augments vite manifest with localized chunks', () => {
 		const manifest = internals.augmentViteManifestJson(
 			JSON.stringify({
 				'index.html': {
-					file: 'assets/App-abc.en-US.js',
+					file: 'assets/App-abc.js',
 					name: 'index',
 					src: 'index.html',
 					isEntry: true,
+				},
+				'_shared-abc.js': {
+					file: 'assets/shared-abc.js',
+					name: 'shared',
+				},
+				'_page-abc.js': {
+					file: 'assets/page-abc.js',
+					name: 'page',
 				},
 			}),
 			{
@@ -871,6 +1408,8 @@ describe('virtual module generation', () => {
 					{
 						fileName: 'assets/App-abc.ja-JP.js',
 						originalFileName: 'assets/App-abc.js',
+						imports: ['assets/shared-abc.js'],
+						dynamicImports: ['assets/page-abc.js'],
 						locales: {
 							'ja-JP': 'assets/App-abc.ja-JP.js',
 							'en-US': 'assets/App-abc.en-US.js',
@@ -883,8 +1422,45 @@ describe('virtual module generation', () => {
 
 		expect(parsed['index.html'].file).toBe('assets/App-abc.ja-JP.js');
 		expect(parsed['index.html'].locale).toBe('ja-JP');
+		expect(parsed['index.html'].imports).toEqual(['_shared-abc.js']);
+		expect(parsed['index.html'].dynamicImports).toEqual(['_page-abc.js']);
 		expect(parsed['index.html'].internationalization.locales['en-US']).toBe('assets/App-abc.en-US.js');
 		expect(parsed['index.html?locale=en-US'].file).toBe('assets/App-abc.en-US.js');
 		expect(parsed['index.html?locale=en-US'].locale).toBe('en-US');
+		expect(parsed['index.html?locale=en-US'].imports).toEqual(['_shared-abc.js']);
+		expect(parsed['index.html?locale=en-US'].dynamicImports).toEqual(['_page-abc.js']);
+	});
+
+	it('augments css-only vite manifest entries by facade module id', () => {
+		const manifest = internals.augmentViteManifestJson(
+			JSON.stringify({
+				'src/main.ts': {
+					file: 'assets/main.css',
+					src: 'src/main.ts',
+				},
+			}),
+			{
+				primaryLocale: 'ja-JP',
+				entries: [
+					{
+						fileName: 'assets/App-abc.ja-JP.js',
+						originalFileName: 'assets/App-abc.js',
+						facadeModuleId: '/project/src/main.ts',
+						locales: {
+							'ja-JP': 'assets/App-abc.ja-JP.js',
+							'en-US': 'assets/App-abc.en-US.js',
+						},
+					},
+				],
+			},
+		);
+		const parsed = JSON.parse(manifest);
+
+		expect(parsed['src/main.ts'].file).toBe('assets/App-abc.ja-JP.js');
+		expect(parsed['src/main.ts'].css).toEqual(['assets/main.css']);
+		expect(parsed['src/main.ts'].isEntry).toBe(true);
+		expect(parsed['src/main.ts'].internationalization.locales['en-US']).toBe('assets/App-abc.en-US.js');
+		expect(parsed['src/main.ts?locale=en-US'].file).toBe('assets/App-abc.en-US.js');
+		expect(parsed['src/main.ts?locale=en-US'].css).toEqual(['assets/main.css']);
 	});
 });

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import ts from 'typescript';
@@ -164,6 +164,50 @@ describe('volar plugin', () => {
 		expect(scriptCode).toContain('$l: { env: import("vite-vue-internationalization/runtime").LocaleLocalizerDictionary; sfc: { count:');
 		expect(scriptCode).not.toContain('Primary locale text:');
 		expect(scriptCode).not.toContain('@example');
+	});
+
+	it('can use broad runtime global types for large global dictionaries', () => {
+		const vueCompilerOptions = getDefaultCompilerOptions();
+		vueCompilerOptions.plugins = [
+			withConfig(vueInternationalizationVolar, {
+				__moduleConfig: {
+					name: 'vite-vue-internationalization/volar',
+					primaryLocale: 'ja-JP',
+					sfcTransform: 'all',
+					globalType: 'runtime',
+					global: {
+						'ja-JP': {
+							title: 'アプリ',
+							count: '{n} 個',
+						},
+					},
+				},
+			}),
+		];
+		const plugin = createVueLanguagePlugin(ts, {}, vueCompilerOptions, String);
+		const fileName = resolve('examples/vue/src/RuntimeGlobal.vue');
+		const source = [
+			'<template>{{ $locale.env.title }} {{ $l.env.count({ n: 1 }) }}</template>',
+			'<script setup lang="ts">',
+			'const title = $locale.value.env.title;',
+			'const count = $l.value.env.count({ n: 1 });',
+			'</script>',
+		].join('\n');
+		const root = plugin.createVirtualCode?.(fileName, 'vue', ts.ScriptSnapshot.fromString(source), {} as never);
+
+		if (!root) {
+			throw new Error('Expected Vue virtual code to be created.');
+		}
+
+		const scriptCode = [...forEachEmbeddedCode(root)]
+			.find((code) => code.id === 'script_ts')
+			?.snapshot.getText(0, Number.MAX_SAFE_INTEGER);
+		const diagnostics = getSemanticDiagnosticMessages(scriptCode);
+
+		expect(scriptCode).toContain('LocaleScope<import("vite-vue-internationalization/runtime").RuntimeLocaleDictionary, {}>');
+		expect(scriptCode).toContain('env: import("vite-vue-internationalization/runtime").RuntimeLocaleLocalizerDictionary');
+		expect(scriptCode).not.toContain('{ title: "アプリ"; count: "{n} 個"; }');
+		expect(diagnostics).toEqual([]);
 	});
 
 	it('merges multiple locale blocks for editor types with later blocks taking precedence', () => {
@@ -370,7 +414,9 @@ function ensureVolarRequireExportBuild(): void {
 		existsSync(resolve('dist/parse.cjs')) &&
 		existsSync(resolve('dist/message.js')) &&
 		existsSync(resolve('dist/localeEnv.js')) &&
-		existsSync(resolve('dist/scriptSetup.js'))
+		existsSync(resolve('dist/scriptSetup.js')) &&
+		existsSync(resolve('dist/runtime.d.ts')) &&
+		readFileSync(resolve('dist/runtime.d.ts'), 'utf8').includes('RuntimeLocaleLocalizerDictionary')
 	) {
 		return;
 	}

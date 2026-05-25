@@ -2,10 +2,10 @@ import { Fragment, computed, defineComponent, hasInjectionContext, h, inject, re
 import { compileLocaleMessage, formatLocaleMessage } from './message.js';
 import type { App, ComputedRef, InjectionKey, PropType, VNodeChild } from 'vue';
 import type { LocaleMessageSyntax, LocaleMessageToken, LocaleMessageValues } from './message.js';
-import type { LocaleDictionary } from './types.js';
 
-/** Runtime dictionary shape used by locale bundles. */
-export type RuntimeLocaleDictionary = LocaleDictionary;
+/** Runtime dictionary shape used when generated types intentionally skip detailed keys. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type RuntimeLocaleDictionary = Record<string, any>;
 /** Combined locale scope exposed to components. */
 export type LocaleScope<
 	TGlobal extends RuntimeLocaleDictionary = RuntimeLocaleDictionary,
@@ -60,6 +60,12 @@ export type LocaleLocalizerScope = {
 /** Nested localizer dictionary returned by `$l` and localizer helpers. */
 export interface LocaleLocalizerDictionary {
 	[key: string]: LocaleTemplateFunction | LocaleMessageFunction | LocaleLocalizerDictionary;
+}
+/** Permissive runtime localizer dictionary for large untyped global message sets. */
+export interface RuntimeLocaleLocalizerDictionary {
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	(values?: any, plural?: number): string;
+	[key: string]: RuntimeLocaleLocalizerDictionary;
 }
 
 /** Locale payload loaded for one locale. */

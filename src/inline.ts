@@ -6,6 +6,7 @@ import { parse as parseIcuMessage, TYPE } from '@formatjs/icu-messageformat-pars
 import { walk } from 'estree-walker';
 import MagicString from 'magic-string';
 import { compileLocaleMessage } from './message.js';
+import { hasLocaleBinding } from './parse.js';
 import { injectScriptSetup } from './scriptSetup.js';
 import type { Node as EstreeNode } from 'estree-walker';
 import type { MessageFormatElement } from '@formatjs/icu-messageformat-parser';
@@ -24,6 +25,12 @@ export type InlineChunkManifest = {
 	entries: Array<{
 		fileName: string;
 		originalFileName: string;
+		facadeModuleId?: string;
+		isEntry?: boolean;
+		isDynamicEntry?: boolean;
+		imports?: string[];
+		dynamicImports?: string[];
+		css?: string[];
 		locales: Record<string, string>;
 	}>;
 };
@@ -32,11 +39,18 @@ export type InlineLocaleLoaderAsset = {
 	fileName: string;
 	source: string;
 };
+type InlineLocaleHtmlOptions = {
+	base?: string;
+	emitAsset?: InlineLocaleAssetEmitter;
+};
 
 type ModuleMessages = Partial<Record<string, Partial<Record<string, LocaleDictionary>>>>;
 type LocaleMessages = Partial<Record<string, LocaleDictionary>>;
 type PublicLocaleScope = 'env' | 'sfc';
 type InlinePayloadResolver = (moduleId: string) => InlineLocalePayload;
+type InlinePayloadResolverCache = {
+	resolve(locale: string): InlinePayloadResolver;
+};
 type AstReplaceOptions = {
 	localeMembers?: boolean;
 	localizerCalls?: boolean;
@@ -44,6 +58,78 @@ type AstReplaceOptions = {
 	objectCalls?: boolean;
 	allowMarkerFallback?: boolean;
 };
+type InlineReplacementPlan = {
+	code: string;
+	operations: InlineReplacementOperation[];
+};
+type InlineReplacementOperation =
+	| {
+		type: 'text-call';
+		start: number;
+		end: number;
+		marker: string;
+		path: string;
+	}
+	| {
+		type: 'localizer-call';
+		start: number;
+		end: number;
+		marker: string;
+		path: string;
+		valuesExpression: string;
+		pluralExpression?: string;
+	}
+	| {
+		type: 'lookup-call';
+		start: number;
+		end: number;
+		marker: string;
+		path: string;
+		keyExpression: string;
+		suffixKeys: string[];
+	}
+	| {
+		type: 'locale-object-call';
+		start: number;
+		end: number;
+		marker: string;
+	}
+	| {
+		type: 'localizer-object-call';
+		start: number;
+		end: number;
+		marker: string;
+	}
+	| {
+		type: 'localizer-binding-call';
+		start: number;
+		end: number;
+		marker: string;
+		properties: string[];
+		valuesExpression: string;
+		pluralExpression?: string;
+	}
+	| {
+		type: 'locale-member';
+		start: number;
+		end: number;
+		marker: string;
+		properties: string[];
+	};
+type ParsedLocaleAccess = {
+	end: number;
+	segments: LocaleAccessSegment[];
+	source: string;
+};
+type LocaleAccessSegment =
+	| {
+		type: 'static';
+		value: string;
+	}
+	| {
+		type: 'dynamic';
+		expression: string;
+	};
 type ParsedInlineJavaScript = {
 	ast: AstNode;
 	code: string;
@@ -61,6 +147,16 @@ type AstIdentifier = AstNode & {
 type AstLiteral = AstNode & {
 	type: 'Literal';
 	value: unknown;
+};
+type AstTemplateLiteral = AstNode & {
+	type: 'TemplateLiteral';
+	expressions: AstNode[];
+	quasis: Array<{
+		value: {
+			cooked?: string | null;
+			raw: string;
+		};
+	}>;
 };
 type AstMemberExpression = AstNode & {
 	type: 'MemberExpression';
@@ -84,6 +180,10 @@ type MutableOutputChunk = {
 	code: string;
 	imports: string[];
 	dynamicImports: string[];
+	viteMetadata?: {
+		importedAssets?: Set<string>;
+		importedCss?: Set<string>;
+	};
 	[key: string]: unknown;
 };
 type MutableOutputBundle = Record<string, unknown>;
@@ -95,17 +195,31 @@ type MutableOutputAsset = {
 	originalFileNames?: string[];
 	[key: string]: unknown;
 };
+type InlineLocaleChunkEmitter = (chunk: MutableOutputChunk) => void;
+type InlineLocaleAssetEmitter = (asset: MutableOutputAsset) => void;
+type InlineChunkSnapshot = {
+	chunk: MutableOutputChunk;
+	originalCode: string;
+	originalFileName: string;
+	originalImports: string[];
+	originalDynamicImports: string[];
+};
+type InlineChunkReferenceMap = {
+	localizeFileName(fileName: string, locale: string): string;
+	localizeCodeReferences(code: string, locale: string): string;
+	replacePreloadMarkers(code: string, locale: string): string;
+};
 
 const INLINE_MARKER_PREFIX = '__VUE_INTERNATIONALIZATION_INLINE__:';
 const INLINE_LOCALE_CALL = '__VUE_INTERNATIONALIZATION_INLINE_LOCALE__';
 const INLINE_LOCALIZERS_CALL = '__VUE_INTERNATIONALIZATION_INLINE_LOCALIZERS__';
 const INLINE_TEXT_CALL = '__VUE_INTERNATIONALIZATION_INLINE_TEXT__';
 const INLINE_LOCALIZER_CALL = '__VUE_INTERNATIONALIZATION_INLINE_LOCALIZER__';
+const INLINE_LOOKUP_CALL = '__VUE_INTERNATIONALIZATION_INLINE_LOOKUP__';
 const INLINE_TEXT_RE =
 	/(?:\b[A-Za-z_$][\w$]*\.)?__VUE_INTERNATIONALIZATION_INLINE_TEXT__\((?:"|&quot;)(__VUE_INTERNATIONALIZATION_INLINE__:[A-Za-z0-9+/=]+)(?:"|&quot;),(?:"|&quot;)((?:env|sfc)(?:\.[A-Za-z_$][\w$]*)+)(?:"|&quot;)\)/g;
 const INLINE_LOCALIZER_RE =
 	/(?:\b[A-Za-z_$][\w$]*\.)?__VUE_INTERNATIONALIZATION_INLINE_LOCALIZER__\((?:"|&quot;)(__VUE_INTERNATIONALIZATION_INLINE__:[A-Za-z0-9+/=]+)(?:"|&quot;),(?:"|&quot;)((?:env|sfc)(?:\.[A-Za-z_$][\w$]*)+)(?:"|&quot;),(\{[^)]*\})\)/g;
-const LOCALE_ACCESS_RE = /\$locale(?:\.value)?\.(env|sfc)((?:\.[A-Za-z_$][\w$]*)+)/g;
 const LOCALIZER_ACCESS_PREFIX_RE = /\$l(?:\.value)?\.(env|sfc)((?:\.[A-Za-z_$][\w$]*)+)\(/g;
 const VUE_DEFAULT_IMPORT_RE = /\bimport\s+([A-Za-z_$][\w$]*)\s+from\s+(["'])([^"']+\.vue(?:\?[^"']*)?)\2/g;
 
@@ -114,12 +228,19 @@ export function createInlineLocaleMarker(moduleId: string): string {
 }
 
 export function injectInlineLocaleBinding(code: string, moduleId: string): string {
+	const needsLocaleBinding = !hasLocaleBinding(code, '$locale');
+	const needsLocalizerBinding = !hasLocaleBinding(code, '$l');
+
+	if (!needsLocaleBinding && !needsLocalizerBinding) {
+		return code;
+	}
+
 	const injection = [
 		'',
-		`const $locale = __VUE_INTERNATIONALIZATION_INLINE_LOCALE__(${JSON.stringify(createInlineLocaleMarker(moduleId))});`,
-		`const $l = __VUE_INTERNATIONALIZATION_INLINE_LOCALIZERS__(${JSON.stringify(createInlineLocaleMarker(moduleId))});`,
+		needsLocaleBinding ? `const $locale = __VUE_INTERNATIONALIZATION_INLINE_LOCALE__(${JSON.stringify(createInlineLocaleMarker(moduleId))});` : '',
+		needsLocalizerBinding ? `const $l = __VUE_INTERNATIONALIZATION_INLINE_LOCALIZERS__(${JSON.stringify(createInlineLocaleMarker(moduleId))});` : '',
 		'',
-	].join('\n');
+	].filter((line, index, lines) => line.length > 0 || index === 0 || index === lines.length - 1).join('\n');
 
 	return injectScriptSetup(code, injection);
 }
@@ -127,11 +248,8 @@ export function injectInlineLocaleBinding(code: string, moduleId: string): strin
 export function rewriteInlineLocaleTemplateAccess(code: string, moduleId: string): string {
 	const marker = createInlineLocaleMarker(moduleId);
 
-	return code.replace(/<template\b[^>]*>[\s\S]*?<\/template>/g, (template) =>
-		rewriteTemplateLocalizerAccess(template, marker)
-			.replace(LOCALE_ACCESS_RE, (_match, scope: PublicLocaleScope, pathExpression: string) =>
-				`__VUE_INTERNATIONALIZATION_INLINE_TEXT__(${createTemplateStringArgument(marker)},${createTemplateStringArgument(`${scope}${pathExpression}`)})`,
-			),
+	return replaceVueTemplateContent(code, (template) =>
+		rewriteTemplateLocaleAccess(rewriteTemplateLocalizerAccess(template, marker), marker),
 	);
 }
 
@@ -176,26 +294,178 @@ function rewriteTemplateLocalizerAccess(template: string, marker: string): strin
 	return cursor === 0 ? template : next + template.slice(cursor);
 }
 
-function rewriteScriptComponentLocaleAccess(code: string, imports: Map<string, string>): string {
+function rewriteTemplateLocaleAccess(template: string, marker: string): string {
 	let next = '';
 	let cursor = 0;
 
-	for (const match of code.matchAll(/<template\b[^>]*>[\s\S]*?<\/template>/g)) {
+	for (const match of template.matchAll(/\$locale(?:\.value)?\.(env|sfc)/g)) {
 		const start = match.index;
-		const template = match[0];
+		const scope = match[1] as PublicLocaleScope | undefined;
 
-		next += rewriteComponentLocaleAccess(code.slice(cursor, start), imports, false);
-		next += template;
-		cursor = start + template.length;
+		if (start < cursor || !scope) {
+			continue;
+		}
+
+		const access = parseLocaleAccessSegments(template, start + match[0].length);
+
+		if (!access || access.segments.length === 0) {
+			continue;
+		}
+
+		const replacement = createInlineTemplateAccessReplacement(marker, scope, access);
+
+		if (!replacement) {
+			continue;
+		}
+
+		next += template.slice(cursor, start);
+		next += replacement;
+		cursor = access.end;
 	}
 
-	return next + rewriteComponentLocaleAccess(code.slice(cursor), imports, false);
+	return cursor === 0 ? template : next + template.slice(cursor);
+}
+
+function createInlineTemplateAccessReplacement(
+	marker: string,
+	scope: PublicLocaleScope,
+	access: ParsedLocaleAccess,
+): string | undefined {
+	const dynamicIndex = access.segments.findIndex((segment) => segment.type === 'dynamic');
+
+	if (dynamicIndex === -1) {
+		const keys = access.segments.map((segment) => segment.type === 'static' ? segment.value : '');
+		return `__VUE_INTERNATIONALIZATION_INLINE_TEXT__(${createTemplateStringArgument(marker)},${createTemplateStringArgument(`${scope}.${keys.join('.')}`)})`;
+	}
+
+	if (access.segments.findIndex((segment, index) => index > dynamicIndex && segment.type === 'dynamic') !== -1) {
+		return undefined;
+	}
+
+	const base = access.segments.slice(0, dynamicIndex);
+	const dynamic = access.segments[dynamicIndex];
+	const suffix = access.segments.slice(dynamicIndex + 1);
+
+	if (dynamic.type !== 'dynamic' || base.length === 0) {
+		return undefined;
+	}
+
+	const baseKeys = base.map((segment) => segment.type === 'static' ? segment.value : '');
+	const suffixKeys = suffix.map((segment) => segment.type === 'static' ? segment.value : '');
+	return `__VUE_INTERNATIONALIZATION_INLINE_LOOKUP__(${createTemplateStringArgument(marker)},${createTemplateStringArgument(`${scope}.${baseKeys.join('.')}`)},${dynamic.expression},${createTemplateStringArgument(suffixKeys.join('.'))})`;
+}
+
+function rewriteScriptComponentLocaleAccess(code: string, imports: Map<string, string>): string {
+	const template = parseSfc(code).descriptor.template;
+
+	if (!template) {
+		return rewriteComponentLocaleAccess(code, imports, false);
+	}
+
+	const start = template.loc.start.offset;
+	const end = template.loc.end.offset;
+	return [
+		rewriteComponentLocaleAccess(code.slice(0, start), imports, false),
+		code.slice(start, end),
+		rewriteComponentLocaleAccess(code.slice(end), imports, false),
+	].join('');
 }
 
 function rewriteTemplateComponentLocaleAccess(code: string, imports: Map<string, string>): string {
-	return code.replace(/<template\b[^>]*>[\s\S]*?<\/template>/g, (template) =>
+	return replaceVueTemplateContent(code, (template) =>
 		rewriteComponentLocaleAccess(template, imports, true),
 	);
+}
+
+function replaceVueTemplateContent(code: string, replacer: (template: string) => string): string {
+	const template = parseSfc(code).descriptor.template;
+
+	if (!template) {
+		return code;
+	}
+
+	const start = template.loc.start.offset;
+	const end = template.loc.end.offset;
+	return code.slice(0, start) + replacer(code.slice(start, end)) + code.slice(end);
+}
+
+function parseLocaleAccessSegments(source: string, start: number): ParsedLocaleAccess | undefined {
+	const segments: LocaleAccessSegment[] = [];
+	let cursor = start;
+
+	while (cursor < source.length) {
+		if (source[cursor] === '.') {
+			const identifier = readIdentifier(source, cursor + 1);
+
+			if (!identifier) {
+				break;
+			}
+
+			if (source[identifier.end] === '(') {
+				break;
+			}
+
+			segments.push({ type: 'static', value: identifier.value });
+			cursor = identifier.end;
+			continue;
+		}
+
+		if (source[cursor] === '[') {
+			const end = findBalancedExpressionEnd(source, cursor + 1, '[', ']');
+
+			if (end === undefined) {
+				break;
+			}
+
+			const expression = source.slice(cursor + 1, end);
+			const staticKey = parseStaticPropertyKey(expression);
+			segments.push(staticKey === undefined
+				? { type: 'dynamic', expression }
+				: { type: 'static', value: staticKey });
+			cursor = end + 1;
+			continue;
+		}
+
+		break;
+	}
+
+	if (segments.length === 0) {
+		return undefined;
+	}
+
+	return {
+		end: cursor,
+		segments,
+		source: source.slice(start, cursor),
+	};
+}
+
+function readIdentifier(source: string, start: number): { value: string; end: number } | undefined {
+	const match = /^[A-Za-z_$][\w$]*/.exec(source.slice(start));
+
+	return match
+		? { value: match[0], end: start + match[0].length }
+		: undefined;
+}
+
+function parseStaticPropertyKey(expression: string): string | undefined {
+	const trimmed = expression.trim();
+
+	if (/^`[^`$]*`$/u.test(trimmed)) {
+		return trimmed.slice(1, -1);
+	}
+
+	if (/^"([^"\\]|\\.)*"$/u.test(trimmed)) {
+		return JSON.parse(trimmed) as string;
+	}
+
+	const singleQuoted = /^'((?:[^'\\]|\\.)*)'$/u.exec(trimmed);
+
+	if (singleQuoted) {
+		return singleQuoted[1]
+			.replaceAll('\\\'', '\'')
+			.replaceAll('\\\\', '\\');
+	}
 }
 
 function rewriteComponentLocaleAccess(code: string, imports: Map<string, string>, htmlEscaped: boolean): string {
@@ -365,24 +635,34 @@ export function inlineLocaleChunks(
 	modules: ModuleMessages,
 	globalMessages: LocaleMessages,
 	messageSyntax: LocaleMessageSyntax = 'vue',
+	options: {
+		emitChunk?: InlineLocaleChunkEmitter;
+	} = {},
 ): InlineChunkManifest {
 	const manifest: InlineChunkManifest = {
 		primaryLocale,
 		entries: [],
 	};
-	const localizableChunks = Object.values(bundle)
-		.filter((chunk): chunk is MutableOutputChunk => isMutableOutputChunk(chunk) && chunk.code.includes(INLINE_MARKER_PREFIX))
+	const chunks = Object.values(bundle)
+		.filter((chunk): chunk is MutableOutputChunk => isMutableOutputChunk(chunk))
 		.map((chunk) => ({
 			chunk,
 			originalCode: chunk.code,
-			parsed: parseRequiredInlineJavaScript(chunk.code),
 			originalFileName: chunk.fileName,
 			originalImports: [...chunk.imports],
 			originalDynamicImports: [...chunk.dynamicImports],
 		}));
-	const localizableFiles = new Set(localizableChunks.map(({ originalFileName }) => originalFileName));
+	const localizableFiles = collectLocalizableChunkFiles(chunks);
+	const referenceMap = createInlineChunkReferenceMap(chunks, localizableFiles);
+	const localizableChunks = chunks
+		.filter(({ originalFileName }) => localizableFiles.has(originalFileName))
+		.map((chunk) => ({
+			...chunk,
+			plan: createRequiredInlineReplacementPlan(chunk.originalCode),
+		}));
+	const payloadCache = createInlinePayloadResolverCache(primaryLocale, messageSyntax, modules, globalMessages);
 
-	for (const { chunk, originalCode, parsed, originalFileName, originalImports, originalDynamicImports } of localizableChunks) {
+	for (const { chunk, originalCode, plan, originalFileName, originalImports, originalDynamicImports } of localizableChunks) {
 		const primaryFileName = addLocaleToFileName(originalFileName, primaryLocale);
 		const localeFiles: Record<string, string> = {
 			[primaryLocale]: primaryFileName,
@@ -395,17 +675,23 @@ export function inlineLocaleChunks(
 			};
 
 			localizedChunk.fileName = addLocaleToFileName(originalFileName, locale);
-			localizedChunk.imports = originalImports.map((fileName) => addLocaleToImportedFileName(localizableFiles, fileName, locale));
+			localizedChunk.imports = originalImports.map((fileName) => referenceMap.localizeFileName(fileName, locale));
 			localizedChunk.dynamicImports = originalDynamicImports.map((fileName) =>
-				addLocaleToImportedFileName(localizableFiles, fileName, locale),
+				referenceMap.localizeFileName(fileName, locale),
 			);
-			localizedChunk.code = replaceChunkFileReferences(
-				replaceInlineLocaleMarkers(originalCode, locale, primaryLocale, messageSyntax, modules, globalMessages, parsed),
-				getLocalizableChunkReferences(originalImports, originalDynamicImports, localizableFiles),
+			localizedChunk.code = referenceMap.replacePreloadMarkers(
+				referenceMap.localizeCodeReferences(
+					applyInlineReplacementPlan(originalCode, plan, payloadCache.resolve(locale)),
+					locale,
+				),
 				locale,
 			);
 
-			bundle[localizedChunk.fileName] = localizedChunk;
+			if (options.emitChunk) {
+				options.emitChunk(localizedChunk);
+			} else {
+				bundle[localizedChunk.fileName] = localizedChunk;
+			}
 			localeFiles[locale] = localizedChunk.fileName;
 		}
 
@@ -413,11 +699,51 @@ export function inlineLocaleChunks(
 		manifest.entries.push({
 			fileName: primaryFileName,
 			originalFileName,
+			facadeModuleId: typeof chunk.facadeModuleId === 'string' ? chunk.facadeModuleId : undefined,
+			isEntry: typeof chunk.isEntry === 'boolean' ? chunk.isEntry : undefined,
+			isDynamicEntry: typeof chunk.isDynamicEntry === 'boolean' ? chunk.isDynamicEntry : undefined,
+			imports: originalImports.length > 0 ? originalImports : undefined,
+			dynamicImports: originalDynamicImports.length > 0 ? originalDynamicImports : undefined,
+			css: [...(chunk.viteMetadata?.importedCss ?? [])],
 			locales: localeFiles,
 		});
 	}
 
 	return manifest;
+}
+
+function collectLocalizableChunkFiles(chunks: Array<{
+	originalCode: string;
+	originalFileName: string;
+	originalImports: string[];
+	originalDynamicImports: string[];
+}>): Set<string> {
+	const localizableFiles = new Set(chunks
+		.filter(({ originalCode }) => originalCode.includes(INLINE_MARKER_PREFIX))
+		.map(({ originalFileName }) => originalFileName));
+	let changed = true;
+
+	while (changed) {
+		changed = false;
+
+		for (const chunk of chunks) {
+			if (localizableFiles.has(chunk.originalFileName)) {
+				continue;
+			}
+
+			if (getLocalizableChunkReferences(
+				chunk.originalCode,
+				chunk.originalImports,
+				chunk.originalDynamicImports,
+				localizableFiles,
+			).size > 0) {
+				localizableFiles.add(chunk.originalFileName);
+				changed = true;
+			}
+		}
+	}
+
+	return localizableFiles;
 }
 
 export function replaceInlineLocaleMarkers(
@@ -501,38 +827,63 @@ function replaceInlineLocaleMemberAccessWithResolver(code: string, resolvePayloa
 	});
 }
 
-export function inlineLocaleHtml(bundle: MutableOutputBundle, manifest: InlineChunkManifest): void {
+export function inlineLocaleHtml(
+	bundle: MutableOutputBundle,
+	manifest: InlineChunkManifest,
+	options: InlineLocaleHtmlOptions = {},
+): void {
+	const base = options.base ?? '/';
+
 	for (const asset of Object.values(bundle)) {
 		if (!isMutableOutputAsset(asset) || typeof asset.source !== 'string' || !asset.fileName.endsWith('.html')) {
 			continue;
 		}
 
-		for (const loader of getInlineLocaleHtmlLoaders(asset.source, manifest)) {
-			bundle[loader.fileName] = {
+		for (const loader of getInlineLocaleHtmlLoaders(asset.source, manifest, asset.fileName, base)) {
+			const loaderAsset: MutableOutputAsset = {
 				type: 'asset',
 				fileName: loader.fileName,
 				names: [],
 				originalFileNames: [],
 				source: loader.source,
 			};
+			if (options.emitAsset) {
+				options.emitAsset(loaderAsset);
+			} else {
+				bundle[loader.fileName] = loaderAsset;
+			}
 		}
 
-		asset.source = replaceInlineLocaleHtml(asset.source, manifest);
+		asset.source = replaceInlineLocaleHtml(asset.source, manifest, asset.fileName, base);
 	}
 }
 
-export function getInlineLocaleHtmlLoaders(html: string, manifest: InlineChunkManifest): InlineLocaleLoaderAsset[] {
-	return findHtmlLocaleEntries(html, manifest).map((entry) => ({
+export function getInlineLocaleHtmlLoaders(
+	html: string,
+	manifest: InlineChunkManifest,
+	htmlFileName?: string,
+	base = '/',
+): InlineLocaleLoaderAsset[] {
+	return findHtmlLocaleEntries(html, manifest, htmlFileName, base).map((entry) => ({
 		fileName: createLocaleLoaderFileName(entry.originalFileName),
-		source: createLocaleLoaderSource(entry.locales, manifest.primaryLocale),
+		source: createLocaleLoaderSource(entry.locales, manifest.primaryLocale, base),
 	}));
 }
 
-export function replaceInlineLocaleHtml(html: string, manifest: InlineChunkManifest): string {
+export function replaceInlineLocaleHtml(
+	html: string,
+	manifest: InlineChunkManifest,
+	htmlFileName?: string,
+	base = '/',
+): string {
 	let next = html;
+	const fallbackEntries = findFallbackHtmlLocaleEntries(html, manifest, htmlFileName, base);
 
 	for (const entry of manifest.entries) {
-		next = replaceEntryScript(next, entry.locales, manifest.primaryLocale);
+		const replaced = replaceEntryScript(next, entry.locales, manifest.primaryLocale, base);
+		next = replaced === next && fallbackEntries.includes(entry)
+			? injectLocaleLoaderScript(next, entry, manifest.primaryLocale, base)
+			: replaced;
 	}
 
 	return next;
@@ -540,17 +891,38 @@ export function replaceInlineLocaleHtml(html: string, manifest: InlineChunkManif
 
 export function augmentViteManifestJson(source: string, inlineManifest: InlineChunkManifest): string {
 	const manifest = JSON.parse(source) as Record<string, Record<string, unknown>>;
+	const fileToManifestKey = new Map(Object.entries(manifest)
+		.flatMap(([key, value]) => typeof value.file === 'string' ? [[value.file, key] as const] : []));
 
 	for (const entry of inlineManifest.entries) {
-		const manifestEntry = findManifestEntry(manifest, Object.values(entry.locales));
+		const manifestEntry = findManifestEntry(manifest, entry);
 
 		if (!manifestEntry) {
 			continue;
 		}
 
 		const [key, value] = manifestEntry;
+		const originalFile = typeof value.file === 'string' ? value.file : undefined;
+
 		value.file = entry.locales[inlineManifest.primaryLocale];
 		value.locale = inlineManifest.primaryLocale;
+		value.isEntry ??= true;
+		const imports = mapManifestImports(entry.imports, fileToManifestKey);
+		const dynamicImports = mapManifestImports(entry.dynamicImports, fileToManifestKey);
+
+		if (imports.length > 0) {
+			value.imports = imports;
+		}
+
+		if (dynamicImports.length > 0) {
+			value.dynamicImports = dynamicImports;
+		}
+
+		if (originalFile?.endsWith('.css')) {
+			const css = Array.isArray(value.css) ? value.css : [];
+			value.css = [originalFile, ...css.filter((file): file is string => typeof file === 'string' && file !== originalFile)];
+		}
+
 		value.internationalization = {
 			primaryLocale: inlineManifest.primaryLocale,
 			locales: entry.locales,
@@ -569,40 +941,161 @@ export function augmentViteManifestJson(source: string, inlineManifest: InlineCh
 	return `${JSON.stringify(manifest, null, 2)}\n`;
 }
 
+function mapManifestImports(
+	fileNames: string[] | undefined,
+	fileToManifestKey: Map<string, string>,
+): string[] {
+	return fileNames
+		?.map((fileName) => fileToManifestKey.get(fileName))
+		.filter((key): key is string => typeof key === 'string') ?? [];
+}
+
 export function addLocaleToFileName(fileName: string, locale: string): string {
 	return fileName.replace(/(\.m?js)$/u, `.${sanitizeLocale(locale)}$1`);
 }
 
-function addLocaleToImportedFileName(localizableFiles: Set<string>, fileName: string, locale: string): string {
-	if (localizableFiles.has(fileName)) {
-		return addLocaleToFileName(fileName, locale);
-	}
-
-	return fileName;
-}
-
 function getLocalizableChunkReferences(
+	code: string,
 	imports: string[],
 	dynamicImports: string[],
 	localizableFiles: Set<string>,
 ): Set<string> {
-	return new Set(
+	const references = new Set(
 		[...imports, ...dynamicImports]
 			.filter((fileName) => localizableFiles.has(fileName)),
 	);
-}
+	const localizableFilesByBaseName = new Map([...localizableFiles].map((fileName) => [baseName(fileName), fileName]));
 
-function replaceChunkFileReferences(code: string, localizableFiles: Set<string>, locale: string): string {
-	let next = code;
+	for (const match of code.matchAll(/[A-Za-z0-9._-]+\.m?js/gu)) {
+		const fileName = localizableFilesByBaseName.get(match[0]);
 
-	for (const fileName of localizableFiles) {
-		const localizedFileName = addLocaleToFileName(fileName, locale);
-
-		next = next.replaceAll(fileName, localizedFileName);
-		next = next.replaceAll(baseName(fileName), baseName(localizedFileName));
+		if (fileName) {
+			references.add(fileName);
+		}
 	}
 
-	return next;
+	return references;
+}
+
+function createInlineChunkReferenceMap(
+	chunks: InlineChunkSnapshot[],
+	localizableFiles: Set<string>,
+): InlineChunkReferenceMap {
+	const chunksByOriginalFileName = new Map(chunks.map((chunk) => [chunk.originalFileName, chunk]));
+
+	function localizeFileName(fileName: string, locale: string): string {
+		return localizableFiles.has(fileName) ? addLocaleToFileName(fileName, locale) : fileName;
+	}
+
+	function findOriginalFileName(specifier: string, locale: string): string | undefined {
+		const normalized = specifier.replace(/^\.\//u, '');
+
+		for (const fileName of chunksByOriginalFileName.keys()) {
+			const localizedFileName = addLocaleToFileName(fileName, locale);
+
+			if (
+				normalized === fileName ||
+				normalized === localizedFileName ||
+				normalized === baseName(fileName) ||
+				normalized === baseName(localizedFileName)
+			) {
+				return fileName;
+			}
+		}
+
+		return undefined;
+	}
+
+	function localizeCodeReferences(code: string, locale: string): string {
+		let next = code;
+
+		for (const fileName of localizableFiles) {
+			const localizedFileName = addLocaleToFileName(fileName, locale);
+
+			next = next.replaceAll(fileName, localizedFileName);
+			next = next.replaceAll(baseName(fileName), baseName(localizedFileName));
+		}
+
+		return next;
+	}
+
+	function collectPreloadDependencies(fileName: string, locale: string, seen = new Set<string>()): string[] {
+		if (seen.has(fileName)) {
+			return [];
+		}
+		seen.add(fileName);
+
+		const chunk = chunksByOriginalFileName.get(fileName);
+		const dependencies = new Set<string>();
+
+		if (!chunk) {
+			dependencies.add(localizeFileName(fileName, locale));
+			return [...dependencies];
+		}
+
+		if (!isCssOnlyProxyChunk(chunk)) {
+			dependencies.add(localizeFileName(fileName, locale));
+		}
+
+		for (const css of chunk.chunk.viteMetadata?.importedCss ?? []) {
+			dependencies.add(css);
+		}
+
+		for (const asset of chunk.chunk.viteMetadata?.importedAssets ?? []) {
+			dependencies.add(asset);
+		}
+
+		for (const importedFileName of chunk.originalImports) {
+			dependencies.add(localizeFileName(importedFileName, locale));
+
+			for (const dependency of collectPreloadDependencies(importedFileName, locale, seen)) {
+				dependencies.add(dependency);
+			}
+		}
+
+		return [...dependencies];
+	}
+
+	function replacePreloadMarkers(code: string, locale: string): string {
+		return code
+			.replace(/(import\(\s*(["'`])\.\/([^"'`]+)\2\s*\)(?:(?!,\s*__VITE_PRELOAD__)[\s\S])*?)(\s*,\s*)__VITE_PRELOAD__/gu, (
+				_match,
+				importExpression: string,
+				_quote: string,
+				specifier: string,
+				separator: string,
+			) => {
+				const fileName = findOriginalFileName(specifier, locale);
+				const dependencies = fileName ? collectPreloadDependencies(fileName, locale) : [specifier];
+				const preloadTarget = fileName && isCssOnlyProxyChunk(chunksByOriginalFileName.get(fileName))
+					? 'Promise.resolve({})'
+					: importExpression;
+
+				return `${preloadTarget}${separator}${JSON.stringify(dependencies)}`;
+			})
+			.replaceAll('__VITE_PRELOAD__', '[]');
+	}
+
+	return {
+		localizeFileName,
+		localizeCodeReferences,
+		replacePreloadMarkers,
+	};
+}
+
+function isCssOnlyProxyChunk(chunk?: InlineChunkSnapshot): boolean {
+	if (!chunk) {
+		return false;
+	}
+
+	const hasCssOrAssets = (chunk.chunk.viteMetadata?.importedCss?.size ?? 0) > 0 ||
+		(chunk.chunk.viteMetadata?.importedAssets?.size ?? 0) > 0;
+
+	if (!hasCssOrAssets || chunk.originalImports.length > 0 || chunk.originalDynamicImports.length > 0) {
+		return false;
+	}
+
+	return /^\s*(?:export\s+default\s+["']["'];?)?\s*$/u.test(chunk.originalCode);
 }
 
 function createInlinePayloadResolver(
@@ -612,23 +1105,52 @@ function createInlinePayloadResolver(
 	modules: ModuleMessages,
 	globalMessages: LocaleMessages,
 ): InlinePayloadResolver {
-	const global = mergeWithPrimary(globalMessages[locale], globalMessages[primaryLocale]);
-	const modulesById = new Map<string, LocaleDictionary>();
+	return createInlinePayloadResolverCache(primaryLocale, messageSyntax, modules, globalMessages).resolve(locale);
+}
 
-	return (moduleId) => {
-		let module = modulesById.get(moduleId);
+function createInlinePayloadResolverCache(
+	primaryLocale: string,
+	messageSyntax: LocaleMessageSyntax,
+	modules: ModuleMessages,
+	globalMessages: LocaleMessages,
+): InlinePayloadResolverCache {
+	const globalsByLocale = new Map<string, LocaleDictionary>();
+	const modulesByLocaleAndId = new Map<string, LocaleDictionary>();
+
+	const resolveGlobal = (locale: string): LocaleDictionary => {
+		let global = globalsByLocale.get(locale);
+
+		if (!global) {
+			global = mergeWithPrimary(globalMessages[locale], globalMessages[primaryLocale]);
+			globalsByLocale.set(locale, global);
+		}
+
+		return global;
+	};
+
+	const resolveModule = (locale: string, moduleId: string): LocaleDictionary => {
+		const key = `${locale}\0${moduleId}`;
+		let module = modulesByLocaleAndId.get(key);
 
 		if (!module) {
 			module = mergeWithPrimary(modules[moduleId]?.[locale], modules[moduleId]?.[primaryLocale]);
-			modulesById.set(moduleId, module);
+			modulesByLocaleAndId.set(key, module);
 		}
 
-		return {
-			locale,
-			messageSyntax,
-			global,
-			module,
-		};
+		return module;
+	};
+
+	return {
+		resolve(locale) {
+			const global = resolveGlobal(locale);
+
+			return (moduleId) => ({
+				locale,
+				messageSyntax,
+				global,
+				module: resolveModule(locale, moduleId),
+			});
+		},
 	};
 }
 
@@ -644,9 +1166,36 @@ function replaceInlineLocaleAccessAst(
 		return parsedCode;
 	}
 
-	const localeBindings = new Map<string, InlineLocalePayload>();
-	const localizerBindings = new Map<string, InlineLocalePayload>();
-	const magic = new MagicString(code);
+	return applyInlineReplacementPlan(
+		code,
+		createInlineReplacementPlan(code, options, parsedCode),
+		resolvePayload,
+	);
+}
+
+function createRequiredInlineReplacementPlan(code: string): InlineReplacementPlan {
+	return createInlineReplacementPlan(code, {
+		localeMembers: true,
+		localizerCalls: true,
+		textCalls: true,
+		objectCalls: true,
+	}, parseRequiredInlineJavaScript(code));
+}
+
+function createInlineReplacementPlan(
+	code: string,
+	options: AstReplaceOptions,
+	parsed?: ParsedInlineJavaScript,
+): InlineReplacementPlan {
+	const parsedCode = parsed?.code === code ? parsed : parseInlineJavaScript(code, undefined, options);
+
+	if (typeof parsedCode === 'string') {
+		throw new Error('Expected inline JavaScript parser to return an AST.');
+	}
+
+	const localeBindings = new Map<string, string>();
+	const localizerBindings = new Map<string, string>();
+	const operations: InlineReplacementOperation[] = [];
 
 	walk(parsedCode.ast as unknown as EstreeNode, {
 		enter(node, parent) {
@@ -658,15 +1207,15 @@ function replaceInlineLocaleAccessAst(
 			}
 
 			if (isVariableDeclarator(current)) {
-				collectInlineBinding(current, resolvePayload, localeBindings, localizerBindings);
+				collectInlineBindingMarker(current, localeBindings, localizerBindings);
 				return;
 			}
 
 			if (isCallExpression(current)) {
-				const replacement = getCallReplacement(code, current, resolvePayload, localizerBindings, options);
+				const operation = getCallReplacementOperation(code, current, localizerBindings, options);
 
-				if (replacement !== undefined) {
-					magic.overwrite(current.start, current.end, replacement);
+				if (operation) {
+					operations.push(operation);
 					this.skip();
 				}
 
@@ -678,15 +1227,45 @@ function replaceInlineLocaleAccessAst(
 				isMemberExpression(current) &&
 				!isCallCallee(current, currentParent)
 			) {
-				const replacement = getLocaleMemberReplacement(current, localeBindings);
+				const operation = getLocaleMemberReplacementOperation(current, localeBindings);
 
-				if (replacement !== undefined) {
-					magic.overwrite(current.start, current.end, replacement);
+				if (operation) {
+					operations.push(operation);
 					this.skip();
 				}
 			}
 		},
 	});
+
+	return {
+		code,
+		operations,
+	};
+}
+
+function applyInlineReplacementPlan(
+	code: string,
+	plan: InlineReplacementPlan,
+	resolvePayload: InlinePayloadResolver,
+): string {
+	if (plan.code !== code) {
+		return replaceInlineLocaleAccessAst(code, resolvePayload, {
+			localeMembers: true,
+			localizerCalls: true,
+			textCalls: true,
+			objectCalls: true,
+		});
+	}
+
+	const magic = new MagicString(code);
+
+	for (const operation of plan.operations) {
+		const replacement = getPlannedReplacement(operation, resolvePayload);
+
+		if (replacement !== undefined) {
+			magic.overwrite(operation.start, operation.end, replacement);
+		}
+	}
 
 	return magic.toString();
 }
@@ -758,11 +1337,10 @@ function parseLegacyInlineMarkerFallback(
 	return next;
 }
 
-function collectInlineBinding(
+function collectInlineBindingMarker(
 	node: AstVariableDeclarator,
-	resolvePayload: InlinePayloadResolver,
-	localeBindings: Map<string, InlineLocalePayload>,
-	localizerBindings: Map<string, InlineLocalePayload>,
+	localeBindings: Map<string, string>,
+	localizerBindings: Map<string, string>,
 ): void {
 	if (!isIdentifier(node.id) || !node.init || !isCallExpression(node.init)) {
 		return;
@@ -777,46 +1355,49 @@ function collectInlineBinding(
 	const calleeName = getCalleeName(node.init.callee);
 
 	if (calleeName === INLINE_LOCALE_CALL) {
-		localeBindings.set(node.id.name, resolvePayload(decodeInlineLocaleMarker(marker)));
+		localeBindings.set(node.id.name, marker);
 		return;
 	}
 
 	if (calleeName === INLINE_LOCALIZERS_CALL) {
-		localizerBindings.set(node.id.name, resolvePayload(decodeInlineLocaleMarker(marker)));
+		localizerBindings.set(node.id.name, marker);
 	}
 }
 
-function getCallReplacement(
+function getCallReplacementOperation(
 	code: string,
 	node: AstCallExpression,
-	resolvePayload: InlinePayloadResolver,
-	localizerBindings: Map<string, InlineLocalePayload>,
+	localizerBindings: Map<string, string>,
 	options: AstReplaceOptions,
-): string | undefined {
+): InlineReplacementOperation | undefined {
 	const calleeName = getCalleeName(node.callee);
 
 	if (options.textCalls === true && calleeName === INLINE_TEXT_CALL) {
-		return getInlineTextCallReplacement(node, resolvePayload);
+		return getInlineTextCallReplacementOperation(node);
 	}
 
 	if (options.localizerCalls === true && calleeName === INLINE_LOCALIZER_CALL) {
-		return getInlineLocalizerCallReplacement(code, node, resolvePayload);
+		return getInlineLocalizerCallReplacementOperation(code, node);
+	}
+
+	if (options.textCalls === true && calleeName === INLINE_LOOKUP_CALL) {
+		return getInlineLookupCallReplacementOperation(code, node);
 	}
 
 	if (options.objectCalls === true && calleeName === INLINE_LOCALE_CALL) {
-		return getInlineLocaleObjectReplacement(node, resolvePayload);
+		return getInlineLocaleObjectReplacementOperation(node);
 	}
 
 	if (options.objectCalls === true && calleeName === INLINE_LOCALIZERS_CALL) {
-		return getInlineLocalizerObjectReplacement(node, resolvePayload);
+		return getInlineLocalizerObjectReplacementOperation(node);
 	}
 
 	if (options.localizerCalls === true) {
-		return getLocalizerBindingCallReplacement(code, node, localizerBindings);
+		return getLocalizerBindingCallReplacementOperation(code, node, localizerBindings);
 	}
 }
 
-function getInlineTextCallReplacement(node: AstCallExpression, resolvePayload: InlinePayloadResolver): string | undefined {
+function getInlineTextCallReplacementOperation(node: AstCallExpression): InlineReplacementOperation | undefined {
 	const marker = getStringArgument(node, 0);
 	const path = getStringArgument(node, 1);
 
@@ -824,20 +1405,19 @@ function getInlineTextCallReplacement(node: AstCallExpression, resolvePayload: I
 		return undefined;
 	}
 
-	const resolved = resolveInlinePath(marker, path, resolvePayload);
-
-	if (!resolved) {
-		return undefined;
-	}
-
-	return JSON.stringify(resolved.value ?? `$locale.${path}`);
+	return {
+		type: 'text-call',
+		start: node.start,
+		end: node.end,
+		marker,
+		path,
+	};
 }
 
-function getInlineLocalizerCallReplacement(
+function getInlineLocalizerCallReplacementOperation(
 	code: string,
 	node: AstCallExpression,
-	resolvePayload: InlinePayloadResolver,
-): string | undefined {
+): InlineReplacementOperation | undefined {
 	const marker = getStringArgument(node, 0);
 	const path = getStringArgument(node, 1);
 	const values = node.arguments.at(2);
@@ -846,55 +1426,141 @@ function getInlineLocalizerCallReplacement(
 		return undefined;
 	}
 
-	const resolved = resolveInlinePath(marker, path, resolvePayload);
+	const plural = node.arguments.at(3);
 
-	if (!resolved) {
-		return undefined;
-	}
-
-	if (typeof resolved.value === 'function') {
-		const valuesExpression = values ? code.slice(values.start, values.end) : '{}';
-		const plural = node.arguments.at(3);
-		const pluralExpression = plural ? `, ${code.slice(plural.start, plural.end)}` : '';
-		return `((${resolved.value.toString()})(${valuesExpression}${pluralExpression}))`;
-	}
-
-	const template = typeof resolved.value === 'string' ? resolved.value : `$locale.${path}`;
-	return createInlineTemplateExpression(template, values ? code.slice(values.start, values.end) : '{}', resolvePayload(decodeInlineLocaleMarker(marker)), resolved.scope);
-}
-
-function getInlineLocaleObjectReplacement(node: AstCallExpression, resolvePayload: InlinePayloadResolver): string | undefined {
-	const marker = getStringArgument(node, 0);
-
-	if (!marker || !isInlineLocaleMarker(marker)) {
-		return undefined;
-	}
-
-	const payload = resolvePayload(decodeInlineLocaleMarker(marker));
-	const fallbackPayload = {
-		env: createFallbackObject(payload.global, 'env'),
-		sfc: createFallbackObject(payload.module, 'sfc'),
+	return {
+		type: 'localizer-call',
+		start: node.start,
+		end: node.end,
+		marker,
+		path,
+		valuesExpression: values ? code.slice(values.start, values.end) : '{}',
+		pluralExpression: plural ? code.slice(plural.start, plural.end) : undefined,
 	};
-
-	return createInlineRefAliasExpression(JSON.stringify(fallbackPayload));
 }
 
-function getInlineLocalizerObjectReplacement(node: AstCallExpression, resolvePayload: InlinePayloadResolver): string | undefined {
-	const marker = getStringArgument(node, 0);
-
-	if (!marker || !isInlineLocaleMarker(marker)) {
-		return undefined;
-	}
-
-	const payload = resolvePayload(decodeInlineLocaleMarker(marker));
-	return createInlineRefAliasExpression(`{env:${createLocalizerObjectExpression(payload.global, payload, 'env')},sfc:${createLocalizerObjectExpression(payload.module, payload, 'sfc')}}`);
-}
-
-function getLocalizerBindingCallReplacement(
+function getInlineLookupCallReplacementOperation(
 	code: string,
 	node: AstCallExpression,
-	localizerBindings: Map<string, InlineLocalePayload>,
-): string | undefined {
+): InlineReplacementOperation | undefined {
+	const marker = getStringArgument(node, 0);
+	const path = getStringArgument(node, 1);
+	const key = node.arguments.at(2);
+	const suffix = getStringArgument(node, 3) ?? '';
+
+	if (!marker || !isInlineLocaleMarker(marker) || !path || !key) {
+		return undefined;
+	}
+
+	return {
+		type: 'lookup-call',
+		start: node.start,
+		end: node.end,
+		marker,
+		path,
+		keyExpression: code.slice(key.start, key.end),
+		suffixKeys: suffix === '' ? [] : suffix.split('.'),
+	};
+}
+
+function createInlineLookupExpression(
+	dictionary: LocaleDictionary,
+	keyExpression: string,
+	suffixKeys: string[],
+	payload: InlineLocalePayload,
+	scope: PublicLocaleScope,
+): string {
+	const entries = Object.entries(dictionary)
+		.map(([key, value]) => {
+			const selected = suffixKeys.length > 0 && isDictionary(value)
+				? getValueByPath(value, suffixKeys)
+				: value;
+
+			if (selected === undefined) {
+				return undefined;
+			}
+
+			return `${JSON.stringify(key)}:${serializeInlineLookupValue(selected, payload, scope)}`;
+		})
+		.filter((entry): entry is string => entry !== undefined)
+		.join(',');
+
+	return `(({${entries}})[String(${keyExpression})])`;
+}
+
+function serializeInlineLookupValue(value: unknown, payload: InlineLocalePayload, scope: PublicLocaleScope): string {
+	if (isDictionary(value)) {
+		return `{${Object.entries(value)
+			.map(([key, child]) => `${toObjectPropertyName(key)}:${serializeInlineLookupValue(child, payload, scope)}`)
+			.join(',')}}`;
+	}
+
+	if (typeof value === 'function') {
+		return `(${value.toString()})`;
+	}
+
+	if (typeof value === 'string') {
+		return createInlineTemplateExpression(value, '{}', payload, scope);
+	}
+
+	return JSON.stringify(value);
+}
+
+function replaceNestedInlineMarkerExpression(expression: string, resolvePayload: InlinePayloadResolver): string {
+	const wrapped = `(${expression})`;
+	let replaced: string;
+
+	try {
+		replaced = replaceInlineLocaleAccessAst(wrapped, resolvePayload, {
+			localeMembers: true,
+			localizerCalls: true,
+			textCalls: true,
+			objectCalls: true,
+		});
+	} catch {
+		return expression;
+	}
+
+	return replaced.startsWith('(') && replaced.endsWith(')')
+		? replaced.slice(1, -1)
+		: expression;
+}
+
+function getInlineLocaleObjectReplacementOperation(node: AstCallExpression): InlineReplacementOperation | undefined {
+	const marker = getStringArgument(node, 0);
+
+	if (!marker || !isInlineLocaleMarker(marker)) {
+		return undefined;
+	}
+
+	return {
+		type: 'locale-object-call',
+		start: node.start,
+		end: node.end,
+		marker,
+	};
+}
+
+function getInlineLocalizerObjectReplacementOperation(node: AstCallExpression): InlineReplacementOperation | undefined {
+	const marker = getStringArgument(node, 0);
+
+	if (!marker || !isInlineLocaleMarker(marker)) {
+		return undefined;
+	}
+
+	return {
+		type: 'localizer-object-call',
+		start: node.start,
+		end: node.end,
+		marker,
+	};
+}
+
+function getLocalizerBindingCallReplacementOperation(
+	code: string,
+	node: AstCallExpression,
+	localizerBindings: Map<string, string>,
+): InlineReplacementOperation | undefined {
 	const access = readMemberAccess(node.callee);
 	const values = node.arguments.at(0);
 
@@ -902,9 +1568,9 @@ function getLocalizerBindingCallReplacement(
 		return undefined;
 	}
 
-	const payload = localizerBindings.get(access.root);
+	const marker = localizerBindings.get(access.root);
 
-	if (!payload) {
+	if (!marker) {
 		return undefined;
 	}
 
@@ -914,32 +1580,32 @@ function getLocalizerBindingCallReplacement(
 		return undefined;
 	}
 
-	const value = getValueByPath(getPayloadScope(payload, normalized.scope), normalized.keys);
-	if (typeof value === 'function') {
-		const valuesExpression = values ? code.slice(values.start, values.end) : '{}';
-		const plural = node.arguments.at(1);
-		const pluralExpression = plural ? `, ${code.slice(plural.start, plural.end)}` : '';
-		return `((${value.toString()})(${valuesExpression}${pluralExpression}))`;
-	}
+	const plural = node.arguments.at(1);
 
-	const template = typeof value === 'string' ? value : `$locale.${[normalized.scope, ...normalized.keys].join('.')}`;
-
-	return createInlineTemplateExpression(template, values ? code.slice(values.start, values.end) : '{}', payload, normalized.scope);
+	return {
+		type: 'localizer-binding-call',
+		start: node.start,
+		end: node.end,
+		marker,
+		properties: access.properties,
+		valuesExpression: values ? code.slice(values.start, values.end) : '{}',
+		pluralExpression: plural ? code.slice(plural.start, plural.end) : undefined,
+	};
 }
 
-function getLocaleMemberReplacement(
+function getLocaleMemberReplacementOperation(
 	node: AstMemberExpression,
-	localeBindings: Map<string, InlineLocalePayload>,
-): string | undefined {
+	localeBindings: Map<string, string>,
+): InlineReplacementOperation | undefined {
 	const access = readMemberAccess(node);
 
 	if (!access) {
 		return undefined;
 	}
 
-	const payload = localeBindings.get(access.root);
+	const marker = localeBindings.get(access.root);
 
-	if (!payload) {
+	if (!marker) {
 		return undefined;
 	}
 
@@ -949,9 +1615,107 @@ function getLocaleMemberReplacement(
 		return undefined;
 	}
 
-	const value = getValueByPath(getPayloadScope(payload, normalized.scope), normalized.keys);
+	return {
+		type: 'locale-member',
+		start: node.start,
+		end: node.end,
+		marker,
+		properties: access.properties,
+	};
+}
 
-	return JSON.stringify(value ?? `$locale.${[normalized.scope, ...normalized.keys].join('.')}`);
+function getPlannedReplacement(
+	operation: InlineReplacementOperation,
+	resolvePayload: InlinePayloadResolver,
+): string | undefined {
+	switch (operation.type) {
+		case 'text-call': {
+			const resolved = resolveInlinePath(operation.marker, operation.path, resolvePayload);
+			return resolved ? JSON.stringify(resolved.value ?? `$locale.${operation.path}`) : undefined;
+		}
+
+		case 'localizer-call': {
+			const resolved = resolveInlinePath(operation.marker, operation.path, resolvePayload);
+
+			if (!resolved) {
+				return undefined;
+			}
+
+			const payload = resolvePayload(decodeInlineLocaleMarker(operation.marker));
+			const valuesExpression = replaceNestedInlineMarkerExpression(operation.valuesExpression, resolvePayload);
+
+			if (typeof resolved.value === 'function') {
+				const pluralExpression = operation.pluralExpression ? `, ${operation.pluralExpression}` : '';
+				return `((${resolved.value.toString()})(${valuesExpression}${pluralExpression}))`;
+			}
+
+			const template = typeof resolved.value === 'string' ? resolved.value : `$locale.${operation.path}`;
+			return createInlineTemplateExpression(template, valuesExpression, payload, resolved.scope);
+		}
+
+		case 'lookup-call': {
+			const resolved = resolveInlinePath(operation.marker, operation.path, resolvePayload);
+
+			if (!resolved || !isDictionary(resolved.value)) {
+				return 'undefined';
+			}
+
+			return createInlineLookupExpression(
+				resolved.value,
+				operation.keyExpression,
+				operation.suffixKeys,
+				resolvePayload(decodeInlineLocaleMarker(operation.marker)),
+				resolved.scope,
+			);
+		}
+
+		case 'locale-object-call': {
+			const payload = resolvePayload(decodeInlineLocaleMarker(operation.marker));
+			const fallbackPayload = {
+				env: createFallbackObject(payload.global, 'env'),
+				sfc: createFallbackObject(payload.module, 'sfc'),
+			};
+
+			return createInlineRefAliasExpression(JSON.stringify(fallbackPayload));
+		}
+
+		case 'localizer-object-call': {
+			const payload = resolvePayload(decodeInlineLocaleMarker(operation.marker));
+			return createInlineRefAliasExpression(`{env:${createLocalizerObjectExpression(payload.global, payload, 'env')},sfc:${createLocalizerObjectExpression(payload.module, payload, 'sfc')}}`);
+		}
+
+		case 'localizer-binding-call': {
+			const payload = resolvePayload(decodeInlineLocaleMarker(operation.marker));
+			const normalized = normalizeInlineAccessPath(operation.properties);
+
+			if (!normalized) {
+				return undefined;
+			}
+
+			const value = getValueByPath(getPayloadScope(payload, normalized.scope), normalized.keys);
+			const valuesExpression = replaceNestedInlineMarkerExpression(operation.valuesExpression, resolvePayload);
+
+			if (typeof value === 'function') {
+				const pluralExpression = operation.pluralExpression ? `, ${operation.pluralExpression}` : '';
+				return `((${value.toString()})(${valuesExpression}${pluralExpression}))`;
+			}
+
+			const template = typeof value === 'string' ? value : `$locale.${[normalized.scope, ...normalized.keys].join('.')}`;
+			return createInlineTemplateExpression(template, valuesExpression, payload, normalized.scope);
+		}
+
+		case 'locale-member': {
+			const payload = resolvePayload(decodeInlineLocaleMarker(operation.marker));
+			const normalized = normalizeInlineAccessPath(operation.properties);
+
+			if (!normalized) {
+				return undefined;
+			}
+
+			const value = getValueByPath(getPayloadScope(payload, normalized.scope), normalized.keys);
+			return JSON.stringify(value ?? `$locale.${[normalized.scope, ...normalized.keys].join('.')}`);
+		}
+	}
 }
 
 function resolveInlinePath(
@@ -1019,9 +1783,17 @@ function normalizeInlineAccessPath(properties: string[]): { scope: PublicLocaleS
 function getStringArgument(node: AstCallExpression, index: number): string | undefined {
 	const argument = node.arguments.at(index);
 
-	return argument && isLiteral(argument) && typeof argument.value === 'string'
-		? argument.value
-		: undefined;
+	if (!argument) {
+		return undefined;
+	}
+
+	if (isLiteral(argument) && typeof argument.value === 'string') {
+		return argument.value;
+	}
+
+	if (isTemplateLiteral(argument) && argument.expressions.length === 0) {
+		return argument.quasis[0]?.value.cooked ?? argument.quasis[0]?.value.raw;
+	}
 }
 
 function getCalleeName(callee: AstNode): string | undefined {
@@ -1060,6 +1832,10 @@ function isIdentifier(node: AstNode): node is AstIdentifier {
 
 function isLiteral(node: AstNode): node is AstLiteral {
 	return node.type === 'Literal';
+}
+
+function isTemplateLiteral(node: AstNode): node is AstTemplateLiteral {
+	return node.type === 'TemplateLiteral';
 }
 
 function isMemberExpression(node: AstNode): node is AstMemberExpression {
@@ -1296,6 +2072,10 @@ function createInlineRefAliasExpression(expression: string): string {
 	return `(() => { const __locale = ${expression}; __locale.value = __locale; return __locale; })()`;
 }
 
+function toObjectPropertyName(key: string): string {
+	return /^[$A-Z_a-z][$\w]*$/.test(key) ? key : JSON.stringify(key);
+}
+
 function getPayloadScope(payload: InlineLocalePayload, scope: PublicLocaleScope): LocaleDictionary {
 	return scope === 'env' ? payload.global : payload.module;
 }
@@ -1381,28 +2161,67 @@ function isMutableOutputAsset(value: unknown): value is MutableOutputAsset {
 	return maybeAsset.type === 'asset' && typeof maybeAsset.fileName === 'string';
 }
 
-function replaceEntryScript(html: string, localeFiles: Record<string, string>, primaryLocale: string): string {
-	return html.replace(createEntryScriptRegExp(localeFiles, primaryLocale), (_match, beforeSrc: string, afterSrc: string) => {
+function replaceEntryScript(
+	html: string,
+	localeFiles: Record<string, string>,
+	primaryLocale: string,
+	base: string,
+): string {
+	return html.replace(createEntryScriptRegExp(localeFiles, primaryLocale, base), (_match, beforeSrc: string, afterSrc: string) => {
 		const primaryFile = localeFiles[primaryLocale];
 		const loaderFileName = createLocaleLoaderFileName(originalFileNameFromLocaleFile(primaryFile, primaryLocale));
 
-		return `<script${createLoaderScriptAttributes(beforeSrc, afterSrc, loaderFileName)}></script>`;
+		return `<script${createLoaderScriptAttributes(beforeSrc, afterSrc, loaderFileName, base)}></script>`;
 	});
 }
 
-function findHtmlLocaleEntries(html: string, manifest: InlineChunkManifest): InlineChunkManifest['entries'] {
-	return manifest.entries.filter((entry) => createEntryScriptRegExp(entry.locales, manifest.primaryLocale).test(html));
+function findHtmlLocaleEntries(
+	html: string,
+	manifest: InlineChunkManifest,
+	htmlFileName?: string,
+	base = '/',
+): InlineChunkManifest['entries'] {
+	const scriptEntries = manifest.entries.filter((entry) => createEntryScriptRegExp(entry.locales, manifest.primaryLocale, base).test(html));
+
+	return scriptEntries.length > 0 ? scriptEntries : findFallbackHtmlLocaleEntries(html, manifest, htmlFileName, base);
 }
 
-function createEntryScriptRegExp(localeFiles: Record<string, string>, primaryLocale: string): RegExp {
+function findFallbackHtmlLocaleEntries(
+	html: string,
+	manifest: InlineChunkManifest,
+	htmlFileName?: string,
+	base = '/',
+): InlineChunkManifest['entries'] {
+	if (manifest.entries.some((entry) => createEntryScriptRegExp(entry.locales, manifest.primaryLocale, base).test(html))) {
+		return [];
+	}
+
+	const htmlEntries = manifest.entries.filter(isHtmlEntry);
+
+	if (!htmlFileName) {
+		return htmlEntries;
+	}
+
+	const matchingEntries = htmlEntries.filter((entry) => matchesHtmlFileName(entry, htmlFileName));
+
+	if (matchingEntries.length > 0) {
+		return matchingEntries;
+	}
+
+	return htmlEntries.length === 1 ? htmlEntries : [];
+}
+
+function createEntryScriptRegExp(localeFiles: Record<string, string>, primaryLocale: string, base: string): RegExp {
 	const primaryFile = localeFiles[primaryLocale];
-	const candidates = new Set([
-		originalFileNameFromLocaleFile(primaryFile, primaryLocale),
-		...Object.values(localeFiles),
-	]);
+	const candidates = new Set(
+		[
+			originalFileNameFromLocaleFile(primaryFile, primaryLocale),
+			...Object.values(localeFiles),
+		].flatMap((fileName) => createPublicPathCandidates(fileName, base)),
+	);
 
 	return new RegExp(
-		`<script\\b([^>]*?)\\bsrc=["']/(?:${[...candidates].map(escapeRegExp).join('|')})["']([^>]*)></script>`,
+		`<script\\b([^>]*?)\\bsrc=["'](?:${[...candidates].map(escapeRegExp).join('|')})["']([^>]*)></script>`,
 		'u',
 	);
 }
@@ -1411,21 +2230,56 @@ function createLocaleLoaderFileName(originalFileName: string): string {
 	return originalFileName.replace(/(\.m?js)$/u, '.i18n-loader$1');
 }
 
-function createLocaleLoaderSource(localeFiles: Record<string, string>, primaryLocale: string): string {
+function createLocaleLoaderSource(localeFiles: Record<string, string>, primaryLocale: string, base: string): string {
 	return [
 		`const __vueInternationalizationLocale = new URL(window.location.href).searchParams.get("locale") || ${JSON.stringify(primaryLocale)};`,
-		`const __vueInternationalizationEntries = ${JSON.stringify(toAbsoluteLocaleFiles(localeFiles))};`,
+		`const __vueInternationalizationEntries = ${JSON.stringify(toPublicLocaleFiles(localeFiles, base))};`,
 		`import(__vueInternationalizationEntries[__vueInternationalizationLocale] || __vueInternationalizationEntries[${JSON.stringify(primaryLocale)}]);`,
 		'',
 	].join('\n');
 }
 
-function createLoaderScriptAttributes(beforeSrc: string, afterSrc: string, loaderFileName: string): string {
+function createLoaderScriptAttributes(beforeSrc: string, afterSrc: string, loaderFileName: string, base: string): string {
 	const attributes = removeScriptAttribute(`${beforeSrc}${afterSrc}`, 'src');
 	const withoutIntegrity = removeScriptAttribute(attributes, 'integrity');
 	const typeAttribute = hasScriptAttribute(withoutIntegrity, 'type') ? '' : ' type="module"';
 
-	return `${withoutIntegrity}${typeAttribute} src="/${loaderFileName}"`;
+	return `${withoutIntegrity}${typeAttribute} src="${toPublicPath(loaderFileName, base)}"`;
+}
+
+function injectLocaleLoaderScript(
+	html: string,
+	entry: InlineChunkManifest['entries'][number],
+	primaryLocale: string,
+	base: string,
+): string {
+	const primaryFile = entry.locales[primaryLocale];
+	const loaderFileName = createLocaleLoaderFileName(originalFileNameFromLocaleFile(primaryFile, primaryLocale));
+	const cssLinks = (entry.css ?? [])
+		.map((fileName) => `<link rel="stylesheet" href="${toPublicPath(fileName, base)}">`)
+		.join('');
+	const loaderPath = toPublicPath(loaderFileName, base);
+	const script = `<script type="module" src="${loaderPath}"></script>`;
+	const injection = `${cssLinks}${script}`;
+
+	if (html.includes(`src="${loaderPath}"`) || html.includes(`src='${loaderPath}'`)) {
+		return html;
+	}
+
+	if (/<\/body>/iu.test(html)) {
+		return html.replace(/<\/body>/iu, `${injection}</body>`);
+	}
+
+	return `${html}${injection}`;
+}
+
+function isHtmlEntry(entry: InlineChunkManifest['entries'][number]): boolean {
+	return entry.isEntry === true && entry.isDynamicEntry !== true;
+}
+
+function matchesHtmlFileName(entry: InlineChunkManifest['entries'][number], htmlFileName: string): boolean {
+	return typeof entry.facadeModuleId === 'string' &&
+		normalizePath(entry.facadeModuleId).endsWith(normalizePath(htmlFileName));
 }
 
 function removeScriptAttribute(attributes: string, name: string): string {
@@ -1436,15 +2290,58 @@ function hasScriptAttribute(attributes: string, name: string): boolean {
 	return new RegExp(`(?:^|\\s)${escapeRegExp(name)}(?:\\s*=|\\s|$)`, 'iu').test(attributes);
 }
 
-function toAbsoluteLocaleFiles(localeFiles: Record<string, string>): Record<string, string> {
-	return Object.fromEntries(Object.entries(localeFiles).map(([locale, fileName]) => [locale, `/${fileName}`]));
+function toPublicLocaleFiles(localeFiles: Record<string, string>, base: string): Record<string, string> {
+	return Object.fromEntries(Object.entries(localeFiles).map(([locale, fileName]) => [locale, toPublicPath(fileName, base)]));
+}
+
+function toPublicPath(fileName: string, base: string): string {
+	if (/^[a-z][a-z\d+\-.]*:/iu.test(base) || base.startsWith('//')) {
+		return new URL(fileName, base).toString();
+	}
+
+	if (base === '' || base === './') {
+		return `${base}${fileName}`;
+	}
+
+	return `${base.endsWith('/') ? base : `${base}/`}${fileName}`;
+}
+
+function createPublicPathCandidates(fileName: string, base: string): string[] {
+	const publicPath = toPublicPath(fileName, base);
+	const candidates = new Set([publicPath]);
+
+	if (base === '' || base === './') {
+		candidates.add(fileName);
+		candidates.add(`./${fileName}`);
+	}
+
+	return [...candidates];
 }
 
 function findManifestEntry(
 	manifest: Record<string, Record<string, unknown>>,
-	fileNames: string[],
+	entry: InlineChunkManifest['entries'][number],
 ): [string, Record<string, unknown>] | undefined {
-	return Object.entries(manifest).find(([, value]) => typeof value.file === 'string' && fileNames.includes(value.file));
+	const fileNames = new Set([entry.originalFileName, ...Object.values(entry.locales)]);
+	const fileNameMatch = Object.entries(manifest).find(([, value]) =>
+		typeof value.file === 'string' && fileNames.has(value.file),
+	);
+
+	if (fileNameMatch) {
+		return fileNameMatch;
+	}
+
+	if (!entry.facadeModuleId) {
+		return undefined;
+	}
+
+	const normalizedFacadeModuleId = entry.facadeModuleId.replace(/\\/gu, '/');
+
+	return Object.entries(manifest).find(([key, value]) =>
+		typeof value.src === 'string' &&
+		(value.src === key || key.endsWith(value.src)) &&
+		normalizedFacadeModuleId.endsWith(key.replace(/\\/gu, '/')),
+	);
 }
 
 function escapeRegExp(value: string): string {

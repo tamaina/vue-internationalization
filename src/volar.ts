@@ -31,6 +31,7 @@ import type { LocaleDictionary } from './types.js';
 export type VueInternationalizationVolarPluginConfig = {
 	primaryLocale?: string;
 	global?: LocaleEnvSources;
+	globalType?: 'detailed' | 'runtime';
 	localizerDocumentation?: boolean;
 	messageSyntax?: LocaleMessageSyntax;
 	sfcTransform?: 'locale-sources' | 'all';
@@ -359,6 +360,7 @@ function getGeneratedTypes(
 ): GeneratedTypes {
 	const key = [
 		config.localizerDocumentation === false ? 'compact' : 'documented',
+		config.globalType ?? 'detailed',
 		config.messageSyntax ?? 'vue',
 		stableStringify(globalDictionary ?? {}),
 		stableStringify(moduleDictionary),
@@ -369,37 +371,38 @@ function getGeneratedTypes(
 		return cached;
 	}
 
+	const globalTypeOptions = config.globalType === 'runtime' ? { global: 'runtime' as const } : {};
 	const types = {
 		localeRefType: createLocaleConstRefType({
 			global: globalDictionary,
 			module: moduleDictionary,
 			messageSyntax: config.messageSyntax ?? 'vue',
-		}),
+		}, globalTypeOptions),
 		localeScopeType: createLocaleConstScopeType({
 			global: globalDictionary,
 			module: moduleDictionary,
 			messageSyntax: config.messageSyntax ?? 'vue',
-		}),
+		}, globalTypeOptions),
 		localizerRefType: config.localizerDocumentation === false
 			? createLocalizerRefType({
 				global: globalDictionary,
 				module: moduleDictionary,
 				messageSyntax: config.messageSyntax ?? 'vue',
-			})
+			}, globalTypeOptions)
 			: createLocalizerDocumentationRefType({
 				global: globalDictionary,
 				module: moduleDictionary,
 				messageSyntax: config.messageSyntax ?? 'vue',
-			}),
+			}, globalTypeOptions),
 		localizerScopeType: config.localizerDocumentation === false
 			? createLocalizerScopeType({
 				global: globalDictionary,
 				module: moduleDictionary,
-			})
+			}, globalTypeOptions)
 			: createLocalizerDocumentationScopeType({
 				global: globalDictionary,
 				module: moduleDictionary,
-			}),
+			}, globalTypeOptions),
 		componentLocaleType: createComponentLocaleType({
 			module: moduleDictionary,
 		}),

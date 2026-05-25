@@ -2,6 +2,8 @@
 
 A Vite plugin for typed Vue SFC translations with ***SFC custom blocks*** and ***inline locale chunks***.
 
+`VVI` is the short name for `vite-vue-internationalization`.
+
 ## Features
 
 ### SFC Custom Blocks
