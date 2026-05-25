@@ -9,6 +9,12 @@ A typed internationalization plugin for Vite that lets Vue SFCs own their transl
 - [English documentation](./docs/en/index.md)
 - [日本語ドキュメント](./docs/index.md)
 
+## Links
+
+- [GitHub repository](https://github.com/tamaina/vite-vue-internationalization)
+- [npm package](https://www.npmjs.com/package/vite-vue-internationalization)
+- [GitHub Sponsors](https://github.com/sponsors/tamaina)
+
 It supports `<locale>` custom blocks, global dictionaries, Volar type completion, and optional locale-specific chunk output.
 
 ```vue

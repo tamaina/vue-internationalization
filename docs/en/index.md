@@ -54,6 +54,7 @@ This supports type checking in `vue-tsc` and type annotations in the official Vu
 
 - [GitHub repository](https://github.com/tamaina/vite-vue-internationalization)
 - [npm package](https://www.npmjs.com/package/vite-vue-internationalization)
+- [GitHub Sponsors](https://github.com/sponsors/tamaina)
 
 ## Examples
 

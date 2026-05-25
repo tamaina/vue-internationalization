@@ -9,6 +9,10 @@
     "type": "git",
     "url": "https://github.com/tamaina/vite-vue-internationalization"
   },
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/tamaina"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
