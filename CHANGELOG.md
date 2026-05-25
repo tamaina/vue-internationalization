@@ -16,6 +16,7 @@
 - fix: Rewrite inline locale access across top-level SFC templates that contain nested template slots.
 - fix: Preserve method calls chained after inline locale text access.
 - feat: Inline static and finite dynamic computed `$locale` template access for inline chunks.
+- perf: Cache inline chunk locale payloads and reuse planned marker replacements across locales.
 
 
 ## 0.6.0

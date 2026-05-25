@@ -38,6 +38,9 @@ type ModuleMessages = Partial<Record<string, Partial<Record<string, LocaleDictio
 type LocaleMessages = Partial<Record<string, LocaleDictionary>>;
 type PublicLocaleScope = 'env' | 'sfc';
 type InlinePayloadResolver = (moduleId: string) => InlineLocalePayload;
+type InlinePayloadResolverCache = {
+	resolve(locale: string): InlinePayloadResolver;
+};
 type AstReplaceOptions = {
 	localeMembers?: boolean;
 	localizerCalls?: boolean;
@@ -45,6 +48,64 @@ type AstReplaceOptions = {
 	objectCalls?: boolean;
 	allowMarkerFallback?: boolean;
 };
+type InlineReplacementPlan = {
+	code: string;
+	operations: InlineReplacementOperation[];
+};
+type InlineReplacementOperation =
+	| {
+		type: 'text-call';
+		start: number;
+		end: number;
+		marker: string;
+		path: string;
+	}
+	| {
+		type: 'localizer-call';
+		start: number;
+		end: number;
+		marker: string;
+		path: string;
+		valuesExpression: string;
+		pluralExpression?: string;
+	}
+	| {
+		type: 'lookup-call';
+		start: number;
+		end: number;
+		marker: string;
+		path: string;
+		keyExpression: string;
+		suffixKeys: string[];
+	}
+	| {
+		type: 'locale-object-call';
+		start: number;
+		end: number;
+		marker: string;
+	}
+	| {
+		type: 'localizer-object-call';
+		start: number;
+		end: number;
+		marker: string;
+	}
+	| {
+		type: 'localizer-binding-call';
+		start: number;
+		end: number;
+		marker: string;
+		properties: string[];
+		valuesExpression: string;
+		pluralExpression?: string;
+	}
+	| {
+		type: 'locale-member';
+		start: number;
+		end: number;
+		marker: string;
+		properties: string[];
+	};
 type ParsedLocaleAccess = {
 	end: number;
 	segments: LocaleAccessSegment[];
@@ -574,14 +635,15 @@ export function inlineLocaleChunks(
 		.map((chunk) => ({
 			chunk,
 			originalCode: chunk.code,
-			parsed: parseRequiredInlineJavaScript(chunk.code),
+			plan: createRequiredInlineReplacementPlan(chunk.code),
 			originalFileName: chunk.fileName,
 			originalImports: [...chunk.imports],
 			originalDynamicImports: [...chunk.dynamicImports],
 		}));
 	const localizableFiles = new Set(localizableChunks.map(({ originalFileName }) => originalFileName));
+	const payloadCache = createInlinePayloadResolverCache(primaryLocale, messageSyntax, modules, globalMessages);
 
-	for (const { chunk, originalCode, parsed, originalFileName, originalImports, originalDynamicImports } of localizableChunks) {
+	for (const { chunk, originalCode, plan, originalFileName, originalImports, originalDynamicImports } of localizableChunks) {
 		const primaryFileName = addLocaleToFileName(originalFileName, primaryLocale);
 		const localeFiles: Record<string, string> = {
 			[primaryLocale]: primaryFileName,
@@ -599,7 +661,7 @@ export function inlineLocaleChunks(
 				addLocaleToImportedFileName(localizableFiles, fileName, locale),
 			);
 			localizedChunk.code = replaceChunkFileReferences(
-				replaceInlineLocaleMarkers(originalCode, locale, primaryLocale, messageSyntax, modules, globalMessages, parsed),
+				applyInlineReplacementPlan(originalCode, plan, payloadCache.resolve(locale)),
 				getLocalizableChunkReferences(originalImports, originalDynamicImports, localizableFiles),
 				locale,
 			);
@@ -826,23 +888,52 @@ function createInlinePayloadResolver(
 	modules: ModuleMessages,
 	globalMessages: LocaleMessages,
 ): InlinePayloadResolver {
-	const global = mergeWithPrimary(globalMessages[locale], globalMessages[primaryLocale]);
-	const modulesById = new Map<string, LocaleDictionary>();
+	return createInlinePayloadResolverCache(primaryLocale, messageSyntax, modules, globalMessages).resolve(locale);
+}
 
-	return (moduleId) => {
-		let module = modulesById.get(moduleId);
+function createInlinePayloadResolverCache(
+	primaryLocale: string,
+	messageSyntax: LocaleMessageSyntax,
+	modules: ModuleMessages,
+	globalMessages: LocaleMessages,
+): InlinePayloadResolverCache {
+	const globalsByLocale = new Map<string, LocaleDictionary>();
+	const modulesByLocaleAndId = new Map<string, LocaleDictionary>();
+
+	const resolveGlobal = (locale: string): LocaleDictionary => {
+		let global = globalsByLocale.get(locale);
+
+		if (!global) {
+			global = mergeWithPrimary(globalMessages[locale], globalMessages[primaryLocale]);
+			globalsByLocale.set(locale, global);
+		}
+
+		return global;
+	};
+
+	const resolveModule = (locale: string, moduleId: string): LocaleDictionary => {
+		const key = `${locale}\0${moduleId}`;
+		let module = modulesByLocaleAndId.get(key);
 
 		if (!module) {
 			module = mergeWithPrimary(modules[moduleId]?.[locale], modules[moduleId]?.[primaryLocale]);
-			modulesById.set(moduleId, module);
+			modulesByLocaleAndId.set(key, module);
 		}
 
-		return {
-			locale,
-			messageSyntax,
-			global,
-			module,
-		};
+		return module;
+	};
+
+	return {
+		resolve(locale) {
+			const global = resolveGlobal(locale);
+
+			return (moduleId) => ({
+				locale,
+				messageSyntax,
+				global,
+				module: resolveModule(locale, moduleId),
+			});
+		},
 	};
 }
 
@@ -858,9 +949,36 @@ function replaceInlineLocaleAccessAst(
 		return parsedCode;
 	}
 
-	const localeBindings = new Map<string, InlineLocalePayload>();
-	const localizerBindings = new Map<string, InlineLocalePayload>();
-	const magic = new MagicString(code);
+	return applyInlineReplacementPlan(
+		code,
+		createInlineReplacementPlan(code, options, parsedCode),
+		resolvePayload,
+	);
+}
+
+function createRequiredInlineReplacementPlan(code: string): InlineReplacementPlan {
+	return createInlineReplacementPlan(code, {
+		localeMembers: true,
+		localizerCalls: true,
+		textCalls: true,
+		objectCalls: true,
+	}, parseRequiredInlineJavaScript(code));
+}
+
+function createInlineReplacementPlan(
+	code: string,
+	options: AstReplaceOptions,
+	parsed?: ParsedInlineJavaScript,
+): InlineReplacementPlan {
+	const parsedCode = parsed?.code === code ? parsed : parseInlineJavaScript(code, undefined, options);
+
+	if (typeof parsedCode === 'string') {
+		throw new Error('Expected inline JavaScript parser to return an AST.');
+	}
+
+	const localeBindings = new Map<string, string>();
+	const localizerBindings = new Map<string, string>();
+	const operations: InlineReplacementOperation[] = [];
 
 	walk(parsedCode.ast as unknown as EstreeNode, {
 		enter(node, parent) {
@@ -872,15 +990,15 @@ function replaceInlineLocaleAccessAst(
 			}
 
 			if (isVariableDeclarator(current)) {
-				collectInlineBinding(current, resolvePayload, localeBindings, localizerBindings);
+				collectInlineBindingMarker(current, localeBindings, localizerBindings);
 				return;
 			}
 
 			if (isCallExpression(current)) {
-				const replacement = getCallReplacement(code, current, resolvePayload, localizerBindings, options);
+				const operation = getCallReplacementOperation(code, current, localizerBindings, options);
 
-				if (replacement !== undefined) {
-					magic.overwrite(current.start, current.end, replacement);
+				if (operation) {
+					operations.push(operation);
 					this.skip();
 				}
 
@@ -892,15 +1010,45 @@ function replaceInlineLocaleAccessAst(
 				isMemberExpression(current) &&
 				!isCallCallee(current, currentParent)
 			) {
-				const replacement = getLocaleMemberReplacement(current, localeBindings);
+				const operation = getLocaleMemberReplacementOperation(current, localeBindings);
 
-				if (replacement !== undefined) {
-					magic.overwrite(current.start, current.end, replacement);
+				if (operation) {
+					operations.push(operation);
 					this.skip();
 				}
 			}
 		},
 	});
+
+	return {
+		code,
+		operations,
+	};
+}
+
+function applyInlineReplacementPlan(
+	code: string,
+	plan: InlineReplacementPlan,
+	resolvePayload: InlinePayloadResolver,
+): string {
+	if (plan.code !== code) {
+		return replaceInlineLocaleAccessAst(code, resolvePayload, {
+			localeMembers: true,
+			localizerCalls: true,
+			textCalls: true,
+			objectCalls: true,
+		});
+	}
+
+	const magic = new MagicString(code);
+
+	for (const operation of plan.operations) {
+		const replacement = getPlannedReplacement(operation, resolvePayload);
+
+		if (replacement !== undefined) {
+			magic.overwrite(operation.start, operation.end, replacement);
+		}
+	}
 
 	return magic.toString();
 }
@@ -972,11 +1120,10 @@ function parseLegacyInlineMarkerFallback(
 	return next;
 }
 
-function collectInlineBinding(
+function collectInlineBindingMarker(
 	node: AstVariableDeclarator,
-	resolvePayload: InlinePayloadResolver,
-	localeBindings: Map<string, InlineLocalePayload>,
-	localizerBindings: Map<string, InlineLocalePayload>,
+	localeBindings: Map<string, string>,
+	localizerBindings: Map<string, string>,
 ): void {
 	if (!isIdentifier(node.id) || !node.init || !isCallExpression(node.init)) {
 		return;
@@ -991,50 +1138,49 @@ function collectInlineBinding(
 	const calleeName = getCalleeName(node.init.callee);
 
 	if (calleeName === INLINE_LOCALE_CALL) {
-		localeBindings.set(node.id.name, resolvePayload(decodeInlineLocaleMarker(marker)));
+		localeBindings.set(node.id.name, marker);
 		return;
 	}
 
 	if (calleeName === INLINE_LOCALIZERS_CALL) {
-		localizerBindings.set(node.id.name, resolvePayload(decodeInlineLocaleMarker(marker)));
+		localizerBindings.set(node.id.name, marker);
 	}
 }
 
-function getCallReplacement(
+function getCallReplacementOperation(
 	code: string,
 	node: AstCallExpression,
-	resolvePayload: InlinePayloadResolver,
-	localizerBindings: Map<string, InlineLocalePayload>,
+	localizerBindings: Map<string, string>,
 	options: AstReplaceOptions,
-): string | undefined {
+): InlineReplacementOperation | undefined {
 	const calleeName = getCalleeName(node.callee);
 
 	if (options.textCalls === true && calleeName === INLINE_TEXT_CALL) {
-		return getInlineTextCallReplacement(node, resolvePayload);
+		return getInlineTextCallReplacementOperation(node);
 	}
 
 	if (options.localizerCalls === true && calleeName === INLINE_LOCALIZER_CALL) {
-		return getInlineLocalizerCallReplacement(code, node, resolvePayload);
+		return getInlineLocalizerCallReplacementOperation(code, node);
 	}
 
 	if (options.textCalls === true && calleeName === INLINE_LOOKUP_CALL) {
-		return getInlineLookupCallReplacement(code, node, resolvePayload);
+		return getInlineLookupCallReplacementOperation(code, node);
 	}
 
 	if (options.objectCalls === true && calleeName === INLINE_LOCALE_CALL) {
-		return getInlineLocaleObjectReplacement(node, resolvePayload);
+		return getInlineLocaleObjectReplacementOperation(node);
 	}
 
 	if (options.objectCalls === true && calleeName === INLINE_LOCALIZERS_CALL) {
-		return getInlineLocalizerObjectReplacement(node, resolvePayload);
+		return getInlineLocalizerObjectReplacementOperation(node);
 	}
 
 	if (options.localizerCalls === true) {
-		return getLocalizerBindingCallReplacement(code, node, localizerBindings);
+		return getLocalizerBindingCallReplacementOperation(code, node, localizerBindings);
 	}
 }
 
-function getInlineTextCallReplacement(node: AstCallExpression, resolvePayload: InlinePayloadResolver): string | undefined {
+function getInlineTextCallReplacementOperation(node: AstCallExpression): InlineReplacementOperation | undefined {
 	const marker = getStringArgument(node, 0);
 	const path = getStringArgument(node, 1);
 
@@ -1042,20 +1188,19 @@ function getInlineTextCallReplacement(node: AstCallExpression, resolvePayload: I
 		return undefined;
 	}
 
-	const resolved = resolveInlinePath(marker, path, resolvePayload);
-
-	if (!resolved) {
-		return undefined;
-	}
-
-	return JSON.stringify(resolved.value ?? `$locale.${path}`);
+	return {
+		type: 'text-call',
+		start: node.start,
+		end: node.end,
+		marker,
+		path,
+	};
 }
 
-function getInlineLocalizerCallReplacement(
+function getInlineLocalizerCallReplacementOperation(
 	code: string,
 	node: AstCallExpression,
-	resolvePayload: InlinePayloadResolver,
-): string | undefined {
+): InlineReplacementOperation | undefined {
 	const marker = getStringArgument(node, 0);
 	const path = getStringArgument(node, 1);
 	const values = node.arguments.at(2);
@@ -1064,29 +1209,23 @@ function getInlineLocalizerCallReplacement(
 		return undefined;
 	}
 
-	const resolved = resolveInlinePath(marker, path, resolvePayload);
+	const plural = node.arguments.at(3);
 
-	if (!resolved) {
-		return undefined;
-	}
-
-	if (typeof resolved.value === 'function') {
-		const valuesExpression = values ? replaceNestedInlineMarkerExpression(code.slice(values.start, values.end), resolvePayload) : '{}';
-		const plural = node.arguments.at(3);
-		const pluralExpression = plural ? `, ${code.slice(plural.start, plural.end)}` : '';
-		return `((${resolved.value.toString()})(${valuesExpression}${pluralExpression}))`;
-	}
-
-	const template = typeof resolved.value === 'string' ? resolved.value : `$locale.${path}`;
-	const valuesExpression = values ? replaceNestedInlineMarkerExpression(code.slice(values.start, values.end), resolvePayload) : '{}';
-	return createInlineTemplateExpression(template, valuesExpression, resolvePayload(decodeInlineLocaleMarker(marker)), resolved.scope);
+	return {
+		type: 'localizer-call',
+		start: node.start,
+		end: node.end,
+		marker,
+		path,
+		valuesExpression: values ? code.slice(values.start, values.end) : '{}',
+		pluralExpression: plural ? code.slice(plural.start, plural.end) : undefined,
+	};
 }
 
-function getInlineLookupCallReplacement(
+function getInlineLookupCallReplacementOperation(
 	code: string,
 	node: AstCallExpression,
-	resolvePayload: InlinePayloadResolver,
-): string | undefined {
+): InlineReplacementOperation | undefined {
 	const marker = getStringArgument(node, 0);
 	const path = getStringArgument(node, 1);
 	const key = node.arguments.at(2);
@@ -1096,19 +1235,15 @@ function getInlineLookupCallReplacement(
 		return undefined;
 	}
 
-	const resolved = resolveInlinePath(marker, path, resolvePayload);
-
-	if (!resolved || !isDictionary(resolved.value)) {
-		return 'undefined';
-	}
-
-	return createInlineLookupExpression(
-		resolved.value,
-		code.slice(key.start, key.end),
-		suffix === '' ? [] : suffix.split('.'),
-		resolvePayload(decodeInlineLocaleMarker(marker)),
-		resolved.scope,
-	);
+	return {
+		type: 'lookup-call',
+		start: node.start,
+		end: node.end,
+		marker,
+		path,
+		keyExpression: code.slice(key.start, key.end),
+		suffixKeys: suffix === '' ? [] : suffix.split('.'),
+	};
 }
 
 function createInlineLookupExpression(
@@ -1174,38 +1309,41 @@ function replaceNestedInlineMarkerExpression(expression: string, resolvePayload:
 		: expression;
 }
 
-function getInlineLocaleObjectReplacement(node: AstCallExpression, resolvePayload: InlinePayloadResolver): string | undefined {
+function getInlineLocaleObjectReplacementOperation(node: AstCallExpression): InlineReplacementOperation | undefined {
 	const marker = getStringArgument(node, 0);
 
 	if (!marker || !isInlineLocaleMarker(marker)) {
 		return undefined;
 	}
 
-	const payload = resolvePayload(decodeInlineLocaleMarker(marker));
-	const fallbackPayload = {
-		env: createFallbackObject(payload.global, 'env'),
-		sfc: createFallbackObject(payload.module, 'sfc'),
+	return {
+		type: 'locale-object-call',
+		start: node.start,
+		end: node.end,
+		marker,
 	};
-
-	return createInlineRefAliasExpression(JSON.stringify(fallbackPayload));
 }
 
-function getInlineLocalizerObjectReplacement(node: AstCallExpression, resolvePayload: InlinePayloadResolver): string | undefined {
+function getInlineLocalizerObjectReplacementOperation(node: AstCallExpression): InlineReplacementOperation | undefined {
 	const marker = getStringArgument(node, 0);
 
 	if (!marker || !isInlineLocaleMarker(marker)) {
 		return undefined;
 	}
 
-	const payload = resolvePayload(decodeInlineLocaleMarker(marker));
-	return createInlineRefAliasExpression(`{env:${createLocalizerObjectExpression(payload.global, payload, 'env')},sfc:${createLocalizerObjectExpression(payload.module, payload, 'sfc')}}`);
+	return {
+		type: 'localizer-object-call',
+		start: node.start,
+		end: node.end,
+		marker,
+	};
 }
 
-function getLocalizerBindingCallReplacement(
+function getLocalizerBindingCallReplacementOperation(
 	code: string,
 	node: AstCallExpression,
-	localizerBindings: Map<string, InlineLocalePayload>,
-): string | undefined {
+	localizerBindings: Map<string, string>,
+): InlineReplacementOperation | undefined {
 	const access = readMemberAccess(node.callee);
 	const values = node.arguments.at(0);
 
@@ -1213,9 +1351,9 @@ function getLocalizerBindingCallReplacement(
 		return undefined;
 	}
 
-	const payload = localizerBindings.get(access.root);
+	const marker = localizerBindings.get(access.root);
 
-	if (!payload) {
+	if (!marker) {
 		return undefined;
 	}
 
@@ -1225,32 +1363,32 @@ function getLocalizerBindingCallReplacement(
 		return undefined;
 	}
 
-	const value = getValueByPath(getPayloadScope(payload, normalized.scope), normalized.keys);
-	if (typeof value === 'function') {
-		const valuesExpression = values ? code.slice(values.start, values.end) : '{}';
-		const plural = node.arguments.at(1);
-		const pluralExpression = plural ? `, ${code.slice(plural.start, plural.end)}` : '';
-		return `((${value.toString()})(${valuesExpression}${pluralExpression}))`;
-	}
+	const plural = node.arguments.at(1);
 
-	const template = typeof value === 'string' ? value : `$locale.${[normalized.scope, ...normalized.keys].join('.')}`;
-
-	return createInlineTemplateExpression(template, values ? code.slice(values.start, values.end) : '{}', payload, normalized.scope);
+	return {
+		type: 'localizer-binding-call',
+		start: node.start,
+		end: node.end,
+		marker,
+		properties: access.properties,
+		valuesExpression: values ? code.slice(values.start, values.end) : '{}',
+		pluralExpression: plural ? code.slice(plural.start, plural.end) : undefined,
+	};
 }
 
-function getLocaleMemberReplacement(
+function getLocaleMemberReplacementOperation(
 	node: AstMemberExpression,
-	localeBindings: Map<string, InlineLocalePayload>,
-): string | undefined {
+	localeBindings: Map<string, string>,
+): InlineReplacementOperation | undefined {
 	const access = readMemberAccess(node);
 
 	if (!access) {
 		return undefined;
 	}
 
-	const payload = localeBindings.get(access.root);
+	const marker = localeBindings.get(access.root);
 
-	if (!payload) {
+	if (!marker) {
 		return undefined;
 	}
 
@@ -1260,9 +1398,107 @@ function getLocaleMemberReplacement(
 		return undefined;
 	}
 
-	const value = getValueByPath(getPayloadScope(payload, normalized.scope), normalized.keys);
+	return {
+		type: 'locale-member',
+		start: node.start,
+		end: node.end,
+		marker,
+		properties: access.properties,
+	};
+}
 
-	return JSON.stringify(value ?? `$locale.${[normalized.scope, ...normalized.keys].join('.')}`);
+function getPlannedReplacement(
+	operation: InlineReplacementOperation,
+	resolvePayload: InlinePayloadResolver,
+): string | undefined {
+	switch (operation.type) {
+		case 'text-call': {
+			const resolved = resolveInlinePath(operation.marker, operation.path, resolvePayload);
+			return resolved ? JSON.stringify(resolved.value ?? `$locale.${operation.path}`) : undefined;
+		}
+
+		case 'localizer-call': {
+			const resolved = resolveInlinePath(operation.marker, operation.path, resolvePayload);
+
+			if (!resolved) {
+				return undefined;
+			}
+
+			const payload = resolvePayload(decodeInlineLocaleMarker(operation.marker));
+			const valuesExpression = replaceNestedInlineMarkerExpression(operation.valuesExpression, resolvePayload);
+
+			if (typeof resolved.value === 'function') {
+				const pluralExpression = operation.pluralExpression ? `, ${operation.pluralExpression}` : '';
+				return `((${resolved.value.toString()})(${valuesExpression}${pluralExpression}))`;
+			}
+
+			const template = typeof resolved.value === 'string' ? resolved.value : `$locale.${operation.path}`;
+			return createInlineTemplateExpression(template, valuesExpression, payload, resolved.scope);
+		}
+
+		case 'lookup-call': {
+			const resolved = resolveInlinePath(operation.marker, operation.path, resolvePayload);
+
+			if (!resolved || !isDictionary(resolved.value)) {
+				return 'undefined';
+			}
+
+			return createInlineLookupExpression(
+				resolved.value,
+				operation.keyExpression,
+				operation.suffixKeys,
+				resolvePayload(decodeInlineLocaleMarker(operation.marker)),
+				resolved.scope,
+			);
+		}
+
+		case 'locale-object-call': {
+			const payload = resolvePayload(decodeInlineLocaleMarker(operation.marker));
+			const fallbackPayload = {
+				env: createFallbackObject(payload.global, 'env'),
+				sfc: createFallbackObject(payload.module, 'sfc'),
+			};
+
+			return createInlineRefAliasExpression(JSON.stringify(fallbackPayload));
+		}
+
+		case 'localizer-object-call': {
+			const payload = resolvePayload(decodeInlineLocaleMarker(operation.marker));
+			return createInlineRefAliasExpression(`{env:${createLocalizerObjectExpression(payload.global, payload, 'env')},sfc:${createLocalizerObjectExpression(payload.module, payload, 'sfc')}}`);
+		}
+
+		case 'localizer-binding-call': {
+			const payload = resolvePayload(decodeInlineLocaleMarker(operation.marker));
+			const normalized = normalizeInlineAccessPath(operation.properties);
+
+			if (!normalized) {
+				return undefined;
+			}
+
+			const value = getValueByPath(getPayloadScope(payload, normalized.scope), normalized.keys);
+			const valuesExpression = replaceNestedInlineMarkerExpression(operation.valuesExpression, resolvePayload);
+
+			if (typeof value === 'function') {
+				const pluralExpression = operation.pluralExpression ? `, ${operation.pluralExpression}` : '';
+				return `((${value.toString()})(${valuesExpression}${pluralExpression}))`;
+			}
+
+			const template = typeof value === 'string' ? value : `$locale.${[normalized.scope, ...normalized.keys].join('.')}`;
+			return createInlineTemplateExpression(template, valuesExpression, payload, normalized.scope);
+		}
+
+		case 'locale-member': {
+			const payload = resolvePayload(decodeInlineLocaleMarker(operation.marker));
+			const normalized = normalizeInlineAccessPath(operation.properties);
+
+			if (!normalized) {
+				return undefined;
+			}
+
+			const value = getValueByPath(getPayloadScope(payload, normalized.scope), normalized.keys);
+			return JSON.stringify(value ?? `$locale.${[normalized.scope, ...normalized.keys].join('.')}`);
+		}
+	}
 }
 
 function resolveInlinePath(
