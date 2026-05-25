@@ -663,7 +663,7 @@ export function inlineLocaleChunks(
 			);
 			localizedChunk.code = replaceChunkFileReferences(
 				applyInlineReplacementPlan(originalCode, plan, payloadCache.resolve(locale)),
-				getLocalizableChunkReferences(originalImports, originalDynamicImports, localizableFiles),
+				getLocalizableChunkReferences(originalCode, originalImports, originalDynamicImports, localizableFiles),
 				locale,
 			);
 
@@ -869,14 +869,26 @@ function addLocaleToImportedFileName(localizableFiles: Set<string>, fileName: st
 }
 
 function getLocalizableChunkReferences(
+	code: string,
 	imports: string[],
 	dynamicImports: string[],
 	localizableFiles: Set<string>,
 ): Set<string> {
-	return new Set(
+	const references = new Set(
 		[...imports, ...dynamicImports]
 			.filter((fileName) => localizableFiles.has(fileName)),
 	);
+	const localizableFilesByBaseName = new Map([...localizableFiles].map((fileName) => [baseName(fileName), fileName]));
+
+	for (const match of code.matchAll(/[A-Za-z0-9._-]+\.m?js/gu)) {
+		const fileName = localizableFilesByBaseName.get(match[0]);
+
+		if (fileName) {
+			references.add(fileName);
+		}
+	}
+
+	return references;
 }
 
 function replaceChunkFileReferences(code: string, localizableFiles: Set<string>, locale: string): string {
