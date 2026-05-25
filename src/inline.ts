@@ -147,7 +147,7 @@ export function injectInlineLocaleBinding(code: string, moduleId: string): strin
 export function rewriteInlineLocaleTemplateAccess(code: string, moduleId: string): string {
 	const marker = createInlineLocaleMarker(moduleId);
 
-	return code.replace(/<template\b[^>]*>[\s\S]*?<\/template>/g, (template) =>
+	return replaceVueTemplateContent(code, (template) =>
 		rewriteTemplateLocalizerAccess(template, marker)
 			.replace(LOCALE_ACCESS_RE, (_match, scope: PublicLocaleScope, pathExpression: string) =>
 				`__VUE_INTERNATIONALIZATION_INLINE_TEXT__(${createTemplateStringArgument(marker)},${createTemplateStringArgument(`${scope}${pathExpression}`)})`,
@@ -197,25 +197,37 @@ function rewriteTemplateLocalizerAccess(template: string, marker: string): strin
 }
 
 function rewriteScriptComponentLocaleAccess(code: string, imports: Map<string, string>): string {
-	let next = '';
-	let cursor = 0;
+	const template = parseSfc(code).descriptor.template;
 
-	for (const match of code.matchAll(/<template\b[^>]*>[\s\S]*?<\/template>/g)) {
-		const start = match.index;
-		const template = match[0];
-
-		next += rewriteComponentLocaleAccess(code.slice(cursor, start), imports, false);
-		next += template;
-		cursor = start + template.length;
+	if (!template) {
+		return rewriteComponentLocaleAccess(code, imports, false);
 	}
 
-	return next + rewriteComponentLocaleAccess(code.slice(cursor), imports, false);
+	const start = template.loc.start.offset;
+	const end = template.loc.end.offset;
+	return [
+		rewriteComponentLocaleAccess(code.slice(0, start), imports, false),
+		code.slice(start, end),
+		rewriteComponentLocaleAccess(code.slice(end), imports, false),
+	].join('');
 }
 
 function rewriteTemplateComponentLocaleAccess(code: string, imports: Map<string, string>): string {
-	return code.replace(/<template\b[^>]*>[\s\S]*?<\/template>/g, (template) =>
+	return replaceVueTemplateContent(code, (template) =>
 		rewriteComponentLocaleAccess(template, imports, true),
 	);
+}
+
+function replaceVueTemplateContent(code: string, replacer: (template: string) => string): string {
+	const template = parseSfc(code).descriptor.template;
+
+	if (!template) {
+		return code;
+	}
+
+	const start = template.loc.start.offset;
+	const end = template.loc.end.offset;
+	return code.slice(0, start) + replacer(code.slice(start, end)) + code.slice(end);
 }
 
 function rewriteComponentLocaleAccess(code: string, imports: Map<string, string>, htmlEscaped: boolean): string {

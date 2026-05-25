@@ -13,6 +13,7 @@
 - fix: Avoid setup-binding injection for inline global-only SFC transforms.
 - fix: Replace inline marker calls whose marker arguments are emitted as template literals.
 - fix: Replace inline marker calls nested in localizer values expressions.
+- fix: Rewrite inline locale access across top-level SFC templates that contain nested template slots.
 
 
 ## 0.6.0

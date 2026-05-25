@@ -542,6 +542,22 @@ describe('virtual module generation', () => {
 		expect(compiled.code).toContain('_ctx.__VUE_INTERNATIONALIZATION_INLINE_LOCALIZER__("__VUE_INTERNATIONALIZATION_INLINE__:L3NyYy9BcHAudnVl","sfc.nApples",{ n: Math.max(_ctx.n, 1) })');
 	});
 
+	it('rewrites locale access after nested template slots', () => {
+		const code = internals.rewriteInlineLocaleTemplateAccess([
+			'<template>',
+			'  <Panel>',
+			'    <template #label>{{ $locale.env.label }}</template>',
+			'    <span>{{ $locale.env.afterSlot }}</span>',
+			'  </Panel>',
+			'</template>',
+		].join('\n'), '/src/App.vue');
+
+		expect(code).toContain('&quot;env.label&quot;');
+		expect(code).toContain('&quot;env.afterSlot&quot;');
+		expect(code).not.toContain('$locale.env.label');
+		expect(code).not.toContain('$locale.env.afterSlot');
+	});
+
 	it('rewrites locale-only SFC static access in scripts and templates for inline chunks', () => {
 		const root = mkdtempSync(join(tmpdir(), 'vite-vue-internationalization-'));
 		mkdirSync(join(root, 'src'), { recursive: true });
