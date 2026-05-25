@@ -149,9 +149,10 @@ export function rewriteInlineLocaleTemplateAccess(code: string, moduleId: string
 
 	return replaceVueTemplateContent(code, (template) =>
 		rewriteTemplateLocalizerAccess(template, marker)
-			.replace(LOCALE_ACCESS_RE, (_match, scope: PublicLocaleScope, pathExpression: string) =>
-				`__VUE_INTERNATIONALIZATION_INLINE_TEXT__(${createTemplateStringArgument(marker)},${createTemplateStringArgument(`${scope}${pathExpression}`)})`,
-			),
+			.replace(LOCALE_ACCESS_RE, (match, scope: PublicLocaleScope, pathExpression: string, offset: number, source: string) => {
+				const split = splitCallableLocalePath(pathExpression, offset + match.length, source);
+				return `__VUE_INTERNATIONALIZATION_INLINE_TEXT__(${createTemplateStringArgument(marker)},${createTemplateStringArgument(`${scope}${split.pathExpression}`)})${split.suffix}`;
+			}),
 	);
 }
 
@@ -228,6 +229,18 @@ function replaceVueTemplateContent(code: string, replacer: (template: string) =>
 	const start = template.loc.start.offset;
 	const end = template.loc.end.offset;
 	return code.slice(0, start) + replacer(code.slice(start, end)) + code.slice(end);
+}
+
+function splitCallableLocalePath(pathExpression: string, end: number, source: string): { pathExpression: string; suffix: string } {
+	if (source[end] !== '(') {
+		return { pathExpression, suffix: '' };
+	}
+
+	const lastDot = pathExpression.lastIndexOf('.');
+
+	return lastDot > 0
+		? { pathExpression: pathExpression.slice(0, lastDot), suffix: pathExpression.slice(lastDot) }
+		: { pathExpression, suffix: '' };
 }
 
 function rewriteComponentLocaleAccess(code: string, imports: Map<string, string>, htmlEscaped: boolean): string {

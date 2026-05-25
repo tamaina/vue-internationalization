@@ -558,6 +558,31 @@ describe('virtual module generation', () => {
 		expect(code).not.toContain('$locale.env.afterSlot');
 	});
 
+	it('rewrites locale access before method calls without consuming the method name', () => {
+		const code = internals.rewriteInlineLocaleTemplateAccess(
+			'<template><div v-html="$locale.env.description.replaceAll(\'\\n\', \'<br>\')"></div></template>',
+			'/src/App.vue',
+		);
+		const compiled = compileTemplate({ source: code, filename: '/src/App.vue', id: 'test' });
+		const replaced = internals.replaceInlineLocaleMarkers(
+			compiled.code,
+			'ja-JP',
+			'ja-JP',
+			'vue',
+			{},
+			{
+				'ja-JP': {
+					description: 'line 1\nline 2',
+				},
+			},
+		);
+
+		expect(code).toContain('&quot;env.description&quot;');
+		expect(code).toContain('.replaceAll');
+		expect(replaced).toContain('"line 1\\nline 2".replaceAll');
+		expect(replaced).not.toContain('$locale.env.description.replaceAll');
+	});
+
 	it('rewrites locale-only SFC static access in scripts and templates for inline chunks', () => {
 		const root = mkdtempSync(join(tmpdir(), 'vite-vue-internationalization-'));
 		mkdirSync(join(root, 'src'), { recursive: true });

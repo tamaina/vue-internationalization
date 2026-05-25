@@ -14,6 +14,7 @@
 - fix: Replace inline marker calls whose marker arguments are emitted as template literals.
 - fix: Replace inline marker calls nested in localizer values expressions.
 - fix: Rewrite inline locale access across top-level SFC templates that contain nested template slots.
+- fix: Preserve method calls chained after inline locale text access.
 
 
 ## 0.6.0
