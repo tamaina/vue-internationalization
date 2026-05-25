@@ -1088,7 +1088,7 @@ describe('virtual module generation', () => {
 		const manifest = internals.augmentViteManifestJson(
 			JSON.stringify({
 				'index.html': {
-					file: 'assets/App-abc.en-US.js',
+					file: 'assets/App-abc.js',
 					name: 'index',
 					src: 'index.html',
 					isEntry: true,
@@ -1115,5 +1115,38 @@ describe('virtual module generation', () => {
 		expect(parsed['index.html'].internationalization.locales['en-US']).toBe('assets/App-abc.en-US.js');
 		expect(parsed['index.html?locale=en-US'].file).toBe('assets/App-abc.en-US.js');
 		expect(parsed['index.html?locale=en-US'].locale).toBe('en-US');
+	});
+
+	it('augments css-only vite manifest entries by facade module id', () => {
+		const manifest = internals.augmentViteManifestJson(
+			JSON.stringify({
+				'src/main.ts': {
+					file: 'assets/main.css',
+					src: 'src/main.ts',
+				},
+			}),
+			{
+				primaryLocale: 'ja-JP',
+				entries: [
+					{
+						fileName: 'assets/App-abc.ja-JP.js',
+						originalFileName: 'assets/App-abc.js',
+						facadeModuleId: '/project/src/main.ts',
+						locales: {
+							'ja-JP': 'assets/App-abc.ja-JP.js',
+							'en-US': 'assets/App-abc.en-US.js',
+						},
+					},
+				],
+			},
+		);
+		const parsed = JSON.parse(manifest);
+
+		expect(parsed['src/main.ts'].file).toBe('assets/App-abc.ja-JP.js');
+		expect(parsed['src/main.ts'].css).toEqual(['assets/main.css']);
+		expect(parsed['src/main.ts'].isEntry).toBe(true);
+		expect(parsed['src/main.ts'].internationalization.locales['en-US']).toBe('assets/App-abc.en-US.js');
+		expect(parsed['src/main.ts?locale=en-US'].file).toBe('assets/App-abc.en-US.js');
+		expect(parsed['src/main.ts?locale=en-US'].css).toEqual(['assets/main.css']);
 	});
 });

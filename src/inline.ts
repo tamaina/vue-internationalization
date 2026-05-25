@@ -25,6 +25,7 @@ export type InlineChunkManifest = {
 	entries: Array<{
 		fileName: string;
 		originalFileName: string;
+		facadeModuleId?: string;
 		locales: Record<string, string>;
 	}>;
 };
@@ -678,6 +679,7 @@ export function inlineLocaleChunks(
 		manifest.entries.push({
 			fileName: primaryFileName,
 			originalFileName,
+			facadeModuleId: typeof chunk.facadeModuleId === 'string' ? chunk.facadeModuleId : undefined,
 			locales: localeFiles,
 		});
 	}
@@ -818,15 +820,24 @@ export function augmentViteManifestJson(source: string, inlineManifest: InlineCh
 	const manifest = JSON.parse(source) as Record<string, Record<string, unknown>>;
 
 	for (const entry of inlineManifest.entries) {
-		const manifestEntry = findManifestEntry(manifest, Object.values(entry.locales));
+		const manifestEntry = findManifestEntry(manifest, entry);
 
 		if (!manifestEntry) {
 			continue;
 		}
 
 		const [key, value] = manifestEntry;
+		const originalFile = typeof value.file === 'string' ? value.file : undefined;
+
 		value.file = entry.locales[inlineManifest.primaryLocale];
 		value.locale = inlineManifest.primaryLocale;
+		value.isEntry ??= true;
+
+		if (originalFile?.endsWith('.css')) {
+			const css = Array.isArray(value.css) ? value.css : [];
+			value.css = [originalFile, ...css.filter((file): file is string => typeof file === 'string' && file !== originalFile)];
+		}
+
 		value.internationalization = {
 			primaryLocale: inlineManifest.primaryLocale,
 			locales: entry.locales,
@@ -2005,9 +2016,28 @@ function toAbsoluteLocaleFiles(localeFiles: Record<string, string>): Record<stri
 
 function findManifestEntry(
 	manifest: Record<string, Record<string, unknown>>,
-	fileNames: string[],
+	entry: InlineChunkManifest['entries'][number],
 ): [string, Record<string, unknown>] | undefined {
-	return Object.entries(manifest).find(([, value]) => typeof value.file === 'string' && fileNames.includes(value.file));
+	const fileNames = new Set([entry.originalFileName, ...Object.values(entry.locales)]);
+	const fileNameMatch = Object.entries(manifest).find(([, value]) =>
+		typeof value.file === 'string' && fileNames.has(value.file),
+	);
+
+	if (fileNameMatch) {
+		return fileNameMatch;
+	}
+
+	if (!entry.facadeModuleId) {
+		return undefined;
+	}
+
+	const normalizedFacadeModuleId = entry.facadeModuleId.replace(/\\/gu, '/');
+
+	return Object.entries(manifest).find(([key, value]) =>
+		typeof value.src === 'string' &&
+		(value.src === key || key.endsWith(value.src)) &&
+		normalizedFacadeModuleId.endsWith(key.replace(/\\/gu, '/')),
+	);
 }
 
 function escapeRegExp(value: string): string {
