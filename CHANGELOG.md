@@ -2,7 +2,11 @@
 
 ### Changes
 
--
+- feat: Preserve CSP-related HTML script attributes when rewriting inline locale chunk entries.
+- feat: Replace inline locale loader SRI and verify locale chunks with modulepreload integrity metadata.
+- fix: Harden locale dictionary parsing and merging with null-prototype dictionaries and unsafe key rejection.
+- docs: Document inline chunk CSP, SRI, dynamic lookup, and fallback behavior in README and build strategy docs.
+- chore: Update the release dispatch skill to require README coverage checks and post-ready release PR review.
 
 
 ## 0.7.0
