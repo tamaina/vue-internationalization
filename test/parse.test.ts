@@ -4,12 +4,32 @@ import { injectLocaleBinding, parseLocaleDictionary, parseLocaleDictionaryForDia
 
 describe('locale SFC parsing', () => {
 	it('parses yaml dictionaries', () => {
-		expect(parseLocaleDictionary('hoge: ほげ\nnested:\n  value: ok', 'yaml', 'fixture')).toEqual({
+		const dictionary = parseLocaleDictionary('hoge: ほげ\nnested:\n  value: ok', 'yaml', 'fixture');
+
+		expect(dictionary).toEqual({
 			hoge: 'ほげ',
 			nested: {
 				value: 'ok',
 			},
 		});
+		expect(Object.getPrototypeOf(dictionary)).toBe(null);
+		expect(Object.getPrototypeOf(dictionary.nested)).toBe(null);
+	});
+
+	it('rejects unsafe keys before script dictionaries can mutate prototypes', () => {
+		const input = [
+			'<script setup lang="ts">',
+			'import { defineInternationalization } from "vite-vue-internationalization";',
+			'defineInternationalization({',
+			'  "ja-JP": {',
+			'    __proto__: { polluted: true },',
+			'  },',
+			'});',
+			'</script>',
+		].join('\n');
+
+		expect(() => parseScriptLocaleDictionaries(input, '/repo/src/App.vue')).toThrow('unsafe locale key "__proto__"');
+		expect(({} as { polluted?: boolean }).polluted).toBeUndefined();
 	});
 
 	it('returns diagnostics for invalid locale dictionaries without throwing', () => {

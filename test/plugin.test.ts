@@ -1192,6 +1192,7 @@ describe('virtual module generation', () => {
 	});
 
 	it('rewrites html entry script to an external locale loader', () => {
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 		const bundle: Record<string, {
 			type: string;
 			fileName: string;
@@ -1200,30 +1201,45 @@ describe('virtual module generation', () => {
 			'index.html': {
 				type: 'asset',
 				fileName: 'index.html',
-				source: '<div id="app"></div><script type="module" nonce="abc" crossorigin integrity="sha256-old" src="/assets/App-abc.js"></script>',
+				source: '<div id="app"></div><script type="module" nonce="abc" crossorigin referrerpolicy="no-referrer" integrity="sha256-old" src="/assets/App-abc.js"></script>',
 			},
 		};
 
-		internals.inlineLocaleHtml(bundle, {
-			primaryLocale: 'ja-JP',
-			entries: [
-				{
-					fileName: 'assets/App-abc.ja-JP.js',
-					originalFileName: 'assets/App-abc.js',
-					locales: {
-						'ja-JP': 'assets/App-abc.ja-JP.js',
-						'en-US': 'assets/App-abc.en-US.js',
+		try {
+			internals.inlineLocaleHtml(bundle, {
+				primaryLocale: 'ja-JP',
+				entries: [
+					{
+						fileName: 'assets/App-abc.ja-JP.js',
+						originalFileName: 'assets/App-abc.js',
+						locales: {
+							'ja-JP': 'assets/App-abc.ja-JP.js',
+							'en-US': 'assets/App-abc.en-US.js',
+						},
+						integrity: {
+							'ja-JP': 'sha384-ja',
+							'en-US': 'sha384-en',
+						},
 					},
-				},
-			],
-		});
+				],
+			});
+
+			expect(warn).not.toHaveBeenCalled();
+		} finally {
+			warn.mockRestore();
+		}
 
 		expect(bundle['index.html'].source).toContain('src="/assets/App-abc.i18n-loader.js"');
 		expect(bundle['index.html'].source).toContain('nonce="abc"');
 		expect(bundle['index.html'].source).toContain('crossorigin');
-		expect(bundle['index.html'].source).not.toContain('integrity=');
+		expect(bundle['index.html'].source).toContain('referrerpolicy="no-referrer"');
+		expect(bundle['index.html'].source).toMatch(/integrity="sha384-[A-Za-z0-9+/=]+"/u);
+		expect(bundle['index.html'].source).not.toContain('sha256-old');
 		expect(bundle['assets/App-abc.i18n-loader.js'].source).toContain('searchParams.get("locale")');
 		expect(bundle['assets/App-abc.i18n-loader.js'].source).toContain('"/assets/App-abc.en-US.js"');
+		expect(bundle['assets/App-abc.i18n-loader.js'].source).toContain('"en-US":"sha384-en"');
+		expect(bundle['assets/App-abc.i18n-loader.js'].source).toContain('rel = "modulepreload"');
+		expect(bundle['assets/App-abc.i18n-loader.js'].source).toContain('integrity = __vueInternationalizationExpectedIntegrity');
 		expect(bundle['index.html'].source).not.toContain('src="/assets/App-abc.js"');
 	});
 

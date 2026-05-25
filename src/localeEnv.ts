@@ -12,7 +12,7 @@ export type LocaleEnvDictionaryDiagnosticsResult = {
 
 export function loadLocaleEnvDictionary(root: string, locale: string, source: string | string[]): LocaleDictionary {
 	const files = expandLocaleEnvSources(root, source);
-	const merged: LocaleDictionary = {};
+	const merged = createLocaleDictionary();
 
 	for (const file of files) {
 		const lang = file.endsWith('.json') ? 'json' : 'yaml';
@@ -38,7 +38,7 @@ export function loadLocaleEnvDictionaryWithDiagnostics(
 		files = expandLocaleEnvSources(root, source);
 	} catch (error) {
 		return {
-			dictionary: {},
+			dictionary: createLocaleDictionary(),
 			diagnostics: [{
 				message: error instanceof Error ? error.message : String(error),
 				start: 0,
@@ -47,7 +47,7 @@ export function loadLocaleEnvDictionaryWithDiagnostics(
 		};
 	}
 
-	const merged: LocaleDictionary = {};
+	const merged = createLocaleDictionary();
 	const diagnostics: LocaleDictionaryDiagnostic[] = [];
 
 	for (const file of files) {
@@ -116,6 +116,10 @@ function mergeLocaleEnvDictionaryForDiagnostics(target: LocaleDictionary, source
 
 		target[key] = value;
 	}
+}
+
+function createLocaleDictionary(): LocaleDictionary {
+	return Object.create(null) as LocaleDictionary;
 }
 
 export function expandLocaleEnvSources(root: string, source: string | string[]): string[] {

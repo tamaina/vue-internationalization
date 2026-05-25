@@ -66,9 +66,11 @@ When the user asks to roll back a release target before final merge:
    - Prefer `minor` if there is a `feat:` commit or a clear new public option/API documented in README/docs/llms.
    - Prefer `patch` if the range is only `fix:`, `perf:`, `refactor:`, `docs:`, `test:`, `chore:`, release tooling, or generated release commits.
    - Do not silently choose `major`; stop and ask unless the user already requested it.
-7. Choose dispatch inputs from the lifecycle above.
-8. If the user explicitly requested the release action, dispatch it. If the user only asked to inspect, plan, or "see if possible", dry-run and report the exact command.
-9. After dispatch, provide the workflow run URL from `gh run list --workflow release-with-dispatch.yml --limit 1 --json databaseId,url,status,conclusion,createdAt`.
+7. Before dispatching a release target, inspect `README.md` against unreleased user-facing changes. Add or request missing README coverage for new public behavior, options, build output, or usage constraints before releasing.
+8. Choose dispatch inputs from the lifecycle above.
+9. If the user explicitly requested the release action, dispatch it. If the user only asked to inspect, plan, or "see if possible", dry-run and report the exact command.
+10. After dispatch, provide the workflow run URL from `gh run list --workflow release-with-dispatch.yml --limit 1 --json databaseId,url,status,conclusion,createdAt`.
+11. When a release PR is marked ready for review and the user did not give a different instruction, perform a PR review before moving on to final merge or release dispatch. Check the release diff, README coverage, package version, changelog content, and generated release artifacts.
 
 ## Script
 

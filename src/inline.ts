@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { parse } from 'acorn';
 import { parse as parseSfc } from '@vue/compiler-sfc';
@@ -32,6 +33,7 @@ export type InlineChunkManifest = {
 		dynamicImports?: string[];
 		css?: string[];
 		locales: Record<string, string>;
+		integrity?: Record<string, string>;
 	}>;
 };
 
@@ -667,6 +669,7 @@ export function inlineLocaleChunks(
 		const localeFiles: Record<string, string> = {
 			[primaryLocale]: primaryFileName,
 		};
+		const integrity: Record<string, string> = {};
 
 		for (const locale of locales) {
 			const localizedChunk: MutableOutputChunk = locale === primaryLocale ? chunk : {
@@ -693,6 +696,7 @@ export function inlineLocaleChunks(
 				bundle[localizedChunk.fileName] = localizedChunk;
 			}
 			localeFiles[locale] = localizedChunk.fileName;
+			integrity[locale] = createSubresourceIntegrity(localizedChunk.code);
 		}
 
 		delete bundle[originalFileName];
@@ -706,6 +710,7 @@ export function inlineLocaleChunks(
 			dynamicImports: originalDynamicImports.length > 0 ? originalDynamicImports : undefined,
 			css: [...(chunk.viteMetadata?.importedCss ?? [])],
 			locales: localeFiles,
+			integrity,
 		});
 	}
 
@@ -866,7 +871,7 @@ export function getInlineLocaleHtmlLoaders(
 ): InlineLocaleLoaderAsset[] {
 	return findHtmlLocaleEntries(html, manifest, htmlFileName, base).map((entry) => ({
 		fileName: createLocaleLoaderFileName(entry.originalFileName),
-		source: createLocaleLoaderSource(entry.locales, manifest.primaryLocale, base),
+		source: createLocaleLoaderSource(entry.locales, manifest.primaryLocale, base, entry.integrity),
 	}));
 }
 
@@ -880,7 +885,7 @@ export function replaceInlineLocaleHtml(
 	const fallbackEntries = findFallbackHtmlLocaleEntries(html, manifest, htmlFileName, base);
 
 	for (const entry of manifest.entries) {
-		const replaced = replaceEntryScript(next, entry.locales, manifest.primaryLocale, base);
+		const replaced = replaceEntryScript(next, entry, manifest.primaryLocale, base);
 		next = replaced === next && fallbackEntries.includes(entry)
 			? injectLocaleLoaderScript(next, entry, manifest.primaryLocale, base)
 			: replaced;
@@ -2085,7 +2090,11 @@ function mergeWithPrimary(current: LocaleDictionary | undefined, primary: Locale
 }
 
 function deepMerge(fallback: LocaleDictionary, current: LocaleDictionary): LocaleDictionary {
-	const merged: LocaleDictionary = { ...fallback };
+	const merged = createLocaleDictionary();
+
+	for (const [key, value] of Object.entries(fallback)) {
+		merged[key] = value;
+	}
 
 	for (const [key, value] of Object.entries(current)) {
 		const fallbackValue = fallback[key];
@@ -2096,7 +2105,7 @@ function deepMerge(fallback: LocaleDictionary, current: LocaleDictionary): Local
 }
 
 function createFallbackObject(dictionary: LocaleDictionary, path: string): LocaleDictionary {
-	const result: LocaleDictionary = {};
+	const result = createLocaleDictionary();
 
 	for (const [key, value] of Object.entries(dictionary)) {
 		result[key] = isDictionary(value) ? createFallbackObject(value, `${path}.${key}`) : value;
@@ -2115,6 +2124,10 @@ function createFallbackObject(dictionary: LocaleDictionary, path: string): Local
 			return `$locale.${path}.${property}`;
 		},
 	});
+}
+
+function createLocaleDictionary(): LocaleDictionary {
+	return Object.create(null) as LocaleDictionary;
 }
 
 function getValueByPath(value: LocaleDictionary, path: string[]): unknown {
@@ -2163,15 +2176,17 @@ function isMutableOutputAsset(value: unknown): value is MutableOutputAsset {
 
 function replaceEntryScript(
 	html: string,
-	localeFiles: Record<string, string>,
+	entry: InlineChunkManifest['entries'][number],
 	primaryLocale: string,
 	base: string,
 ): string {
-	return html.replace(createEntryScriptRegExp(localeFiles, primaryLocale, base), (_match, beforeSrc: string, afterSrc: string) => {
-		const primaryFile = localeFiles[primaryLocale];
+	return html.replace(createEntryScriptRegExp(entry.locales, primaryLocale, base), (_match, beforeSrc: string, afterSrc: string) => {
+		const primaryFile = entry.locales[primaryLocale];
 		const loaderFileName = createLocaleLoaderFileName(originalFileNameFromLocaleFile(primaryFile, primaryLocale));
+		const loaderSource = createLocaleLoaderSource(entry.locales, primaryLocale, base, entry.integrity);
+		const loaderIntegrity = createSubresourceIntegrity(loaderSource);
 
-		return `<script${createLoaderScriptAttributes(beforeSrc, afterSrc, loaderFileName, base)}></script>`;
+		return `<script${createLoaderScriptAttributes(beforeSrc, afterSrc, loaderFileName, base, loaderIntegrity)}></script>`;
 	});
 }
 
@@ -2230,21 +2245,54 @@ function createLocaleLoaderFileName(originalFileName: string): string {
 	return originalFileName.replace(/(\.m?js)$/u, '.i18n-loader$1');
 }
 
-function createLocaleLoaderSource(localeFiles: Record<string, string>, primaryLocale: string, base: string): string {
+function createLocaleLoaderSource(
+	localeFiles: Record<string, string>,
+	primaryLocale: string,
+	base: string,
+	integrity?: Record<string, string>,
+): string {
 	return [
 		`const __vueInternationalizationLocale = new URL(window.location.href).searchParams.get("locale") || ${JSON.stringify(primaryLocale)};`,
 		`const __vueInternationalizationEntries = ${JSON.stringify(toPublicLocaleFiles(localeFiles, base))};`,
-		`import(__vueInternationalizationEntries[__vueInternationalizationLocale] || __vueInternationalizationEntries[${JSON.stringify(primaryLocale)}]);`,
+		`const __vueInternationalizationIntegrity = ${JSON.stringify(integrity ?? {})};`,
+		`const __vueInternationalizationFile = __vueInternationalizationEntries[__vueInternationalizationLocale] || __vueInternationalizationEntries[${JSON.stringify(primaryLocale)}];`,
+		`const __vueInternationalizationExpectedIntegrity = __vueInternationalizationIntegrity[__vueInternationalizationLocale] || __vueInternationalizationIntegrity[${JSON.stringify(primaryLocale)}];`,
+		'const __vueInternationalizationImport = () => import(__vueInternationalizationFile);',
+		'if (__vueInternationalizationExpectedIntegrity && typeof document !== "undefined") {',
+		'  new Promise((resolve, reject) => {',
+		'    const __vueInternationalizationPreload = document.createElement("link");',
+		'    __vueInternationalizationPreload.rel = "modulepreload";',
+		'    __vueInternationalizationPreload.href = __vueInternationalizationFile;',
+		'    __vueInternationalizationPreload.integrity = __vueInternationalizationExpectedIntegrity;',
+		'    __vueInternationalizationPreload.onload = resolve;',
+		'    __vueInternationalizationPreload.onerror = () => reject(new TypeError(`Failed to preload locale chunk ${__vueInternationalizationFile}.`));',
+		'    document.head.append(__vueInternationalizationPreload);',
+		'  }).then(__vueInternationalizationImport);',
+		'} else {',
+		'  __vueInternationalizationImport();',
+		'}',
 		'',
 	].join('\n');
 }
 
-function createLoaderScriptAttributes(beforeSrc: string, afterSrc: string, loaderFileName: string, base: string): string {
+function createLoaderScriptAttributes(
+	beforeSrc: string,
+	afterSrc: string,
+	loaderFileName: string,
+	base: string,
+	loaderIntegrity?: string,
+): string {
 	const attributes = removeScriptAttribute(`${beforeSrc}${afterSrc}`, 'src');
+	const hadIntegrity = hasScriptAttribute(attributes, 'integrity');
 	const withoutIntegrity = removeScriptAttribute(attributes, 'integrity');
 	const typeAttribute = hasScriptAttribute(withoutIntegrity, 'type') ? '' : ' type="module"';
+	const integrityAttribute = hadIntegrity && loaderIntegrity ? ` integrity="${loaderIntegrity}"` : '';
 
-	return `${withoutIntegrity}${typeAttribute} src="${toPublicPath(loaderFileName, base)}"`;
+	if (hadIntegrity && !loaderIntegrity) {
+		console.warn('[vite-vue-internationalization] Removed integrity from an inline-chunks HTML entry script because the script is replaced by a locale loader and per-locale chunks need their own SRI metadata.');
+	}
+
+	return `${withoutIntegrity}${typeAttribute}${integrityAttribute} src="${toPublicPath(loaderFileName, base)}"`;
 }
 
 function injectLocaleLoaderScript(
@@ -2288,6 +2336,10 @@ function removeScriptAttribute(attributes: string, name: string): string {
 
 function hasScriptAttribute(attributes: string, name: string): boolean {
 	return new RegExp(`(?:^|\\s)${escapeRegExp(name)}(?:\\s*=|\\s|$)`, 'iu').test(attributes);
+}
+
+function createSubresourceIntegrity(source: string | Uint8Array): string {
+	return `sha384-${createHash('sha384').update(source).digest('base64')}`;
 }
 
 function toPublicLocaleFiles(localeFiles: Record<string, string>, base: string): Record<string, string> {

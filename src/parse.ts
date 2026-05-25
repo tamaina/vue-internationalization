@@ -70,7 +70,7 @@ export function parseLocaleDictionary(content: string, lang: string, sourceLabel
 
 export function parseScriptLocaleDictionaries(code: string, filename: string): Partial<Record<string, LocaleDictionary>> {
 	const result = parseSfc(code, { filename, pad: false });
-	const messages: Partial<Record<string, LocaleDictionary>> = {};
+	const messages = Object.create(null) as Partial<Record<string, LocaleDictionary>>;
 
 	for (const script of [result.descriptor.script, result.descriptor.scriptSetup]) {
 		if (!script) {
@@ -121,22 +121,21 @@ export function parseLocaleDictionaryForDiagnostics(
 }
 
 export function validateLocaleDictionary(value: unknown, sourceLabel: string): LocaleDictionary {
-	assertSafeDictionary(value, sourceLabel, []);
-	return value as LocaleDictionary;
+	return cloneSafeDictionary(value, sourceLabel, []);
 }
 
 function validateLocaleDictionaryForDiagnostics(value: unknown, sourceLabel: string): LocaleDictionaryParseResult {
-	validateLocaleDictionary(value, sourceLabel);
+	const dictionary = validateLocaleDictionary(value, sourceLabel);
 
 	return {
-		dictionary: value as LocaleDictionary,
+		dictionary,
 		diagnostics: [],
 	};
 }
 
 function createDiagnosticResult(message: string, start: number, end: number): LocaleDictionaryParseResult {
 	return {
-		dictionary: {},
+		dictionary: createLocaleDictionary(),
 		diagnostics: [{
 			message,
 			start,
@@ -157,7 +156,7 @@ function getErrorMessage(error: unknown): string {
 }
 
 export function mergeLocaleDictionaries(...dictionaries: LocaleDictionary[]): LocaleDictionary {
-	const merged: LocaleDictionary = {};
+	const merged = createLocaleDictionary();
 
 	for (const dictionary of dictionaries) {
 		mergeLocaleDictionaryInto(merged, dictionary);
@@ -255,10 +254,12 @@ export function normalizeModuleId(id: string): string {
 	return withoutQuery.replace(/\\/g, '/');
 }
 
-function assertSafeDictionary(value: unknown, sourceLabel: string, path: string[]): void {
+function cloneSafeDictionary(value: unknown, sourceLabel: string, path: string[]): LocaleDictionary {
 	if (value == null || typeof value !== 'object' || Array.isArray(value)) {
 		throw new Error(`${sourceLabel} must contain an object at the top level.`);
 	}
+
+	const result = createLocaleDictionary();
 
 	for (const [key, child] of Object.entries(value)) {
 		const currentPath = [...path, key];
@@ -267,30 +268,22 @@ function assertSafeDictionary(value: unknown, sourceLabel: string, path: string[
 			throw new Error(`${sourceLabel} contains unsafe locale key "${currentPath.join('.')}".`);
 		}
 
-		if (Array.isArray(child)) {
-			assertSafeLocaleArray(child, sourceLabel, currentPath);
-			continue;
-		}
-
-		if (child != null && typeof child === 'object') {
-			assertSafeDictionary(child, sourceLabel, currentPath);
-		}
+		result[key] = cloneSafeLocaleValue(child, sourceLabel, currentPath);
 	}
+
+	return result;
 }
 
-function assertSafeLocaleArray(value: unknown[], sourceLabel: string, path: string[]): void {
-	value.forEach((item, index) => {
-		const currentPath = [...path, String(index)];
+function cloneSafeLocaleValue(value: unknown, sourceLabel: string, path: string[]): LocaleDictionary[string] {
+	if (Array.isArray(value)) {
+		return value.map((item, index) => cloneSafeLocaleValue(item, sourceLabel, [...path, String(index)]));
+	}
 
-		if (Array.isArray(item)) {
-			assertSafeLocaleArray(item, sourceLabel, currentPath);
-			return;
-		}
+	if (value != null && typeof value === 'object') {
+		return cloneSafeDictionary(value, sourceLabel, path);
+	}
 
-		if (item != null && typeof item === 'object') {
-			assertSafeDictionary(item, sourceLabel, currentPath);
-		}
-	});
+	return value as LocaleDictionary[string];
 }
 
 function isUnsafeDictionaryKey(key: string): boolean {
@@ -370,6 +363,10 @@ function mergeLocaleDictionaryInto(target: LocaleDictionary, source: LocaleDicti
 	for (const [key, value] of Object.entries(source)) {
 		const current = target[key];
 
+		if (isUnsafeDictionaryKey(key)) {
+			throw new Error(`Locale dictionary contains unsafe locale key "${key}".`);
+		}
+
 		if (isPlainDictionary(current) && isPlainDictionary(value)) {
 			mergeLocaleDictionaryInto(current, value);
 			continue;
@@ -430,7 +427,7 @@ function parseScriptLocaleRoot(
 	code: string,
 	sourceLabel: string,
 ): Partial<Record<string, LocaleDictionary>> {
-	const result: Partial<Record<string, LocaleDictionary>> = {};
+	const result: Partial<Record<string, LocaleDictionary>> = Object.create(null) as Partial<Record<string, LocaleDictionary>>;
 
 	for (const property of node.properties) {
 		if (!ts.isPropertyAssignment(property)) {
@@ -453,7 +450,7 @@ function parseScriptLocaleDictionary(
 	code: string,
 	sourceLabel: string,
 ): LocaleDictionary {
-	const result: LocaleDictionary = {};
+	const result = createLocaleDictionary();
 
 	for (const property of node.properties) {
 		if (!ts.isPropertyAssignment(property)) {
@@ -472,6 +469,10 @@ function parseScriptLocaleDictionary(
 	}
 
 	return result;
+}
+
+function createLocaleDictionary(): LocaleDictionary {
+	return Object.create(null) as LocaleDictionary;
 }
 
 function parseScriptLocaleValue(node: ts.Expression, code: string, sourceLabel: string): LocaleDictionary[string] | undefined {
@@ -576,7 +577,7 @@ export function getPrimaryLocaleDictionary(
 	const locale = hasPrimaryLocale ? primaryLocale : blockLocale ?? scriptLocale;
 
 	if (!locale) {
-		return {};
+		return createLocaleDictionary();
 	}
 
 	const dictionaries = blocks
