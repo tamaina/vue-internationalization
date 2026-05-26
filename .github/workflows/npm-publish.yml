@@ -3,12 +3,6 @@ name: Stage package on npm
 on:
   release:
     types: [published]
-  workflow_dispatch:
-    inputs:
-      stage_id:
-        type: string
-        description: npm stage id to approve
-        required: true
 
 permissions:
   contents: read
@@ -16,7 +10,6 @@ permissions:
 
 jobs:
   stage:
-    if: github.event_name == 'release'
     environment: npm-publish
     runs-on: ubuntu-latest
     steps:
@@ -80,17 +73,3 @@ jobs:
       - name: Skip existing version
         if: steps.npm.outputs.exists == 'true'
         run: echo "${{ steps.package.outputs.name }}@${{ steps.package.outputs.version }} is already published."
-
-  approve:
-    if: github.event_name == 'workflow_dispatch'
-    environment: npm-publish
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24.16.0
-          registry-url: https://registry.npmjs.org
-
-      - run: npm install -g npm@11.15.0
-
-      - run: npm stage approve "${{ inputs.stage_id }}"
