@@ -8,6 +8,15 @@ type ExampleCase = {
 	asyncText: string;
 };
 
+type WorkerSsrExampleCase = {
+	name: string;
+	url: string;
+	lang: string;
+	heading: string;
+	bodyText: string;
+	footerText: string;
+};
+
 const examples: ExampleCase[] = [
 	{
 		name: 'vue dev ja',
@@ -67,6 +76,25 @@ const examples: ExampleCase[] = [
 	},
 ];
 
+const workerSsrExamples: WorkerSsrExampleCase[] = [
+	{
+		name: 'cloudflare worker ssr ja',
+		url: 'http://127.0.0.1:4175/?locale=ja-JP',
+		lang: 'ja-JP',
+		heading: 'バックエンドで描画したメール',
+		bodyText: 'Vite の SSR module graph で Vue SFC の翻訳を読み込んでいます。',
+		footerText: 'Cloudflare Workers から送信できます。',
+	},
+	{
+		name: 'cloudflare worker ssr en',
+		url: 'http://127.0.0.1:4175/?locale=en-US',
+		lang: 'en-US',
+		heading: 'Email rendered on the backend',
+		bodyText: 'Vue SFC translations are loaded through the Vite SSR module graph.',
+		footerText: 'Ready to send from Cloudflare Workers.',
+	},
+];
+
 for (const example of examples) {
 	test(`${example.name} renders localized content`, async ({ page }) => {
 		const problems = collectPageProblems(page);
@@ -77,6 +105,22 @@ for (const example of examples) {
 		await expect(page.getByRole('heading', { level: 1 })).toHaveText(example.heading);
 		await expect(page.getByText(example.bodyText, { exact: true })).toBeVisible();
 		await expect(page.getByText(example.asyncText, { exact: true })).toBeVisible();
+
+		expect(problems).toEqual([]);
+	});
+}
+
+for (const example of workerSsrExamples) {
+	test(`${example.name} renders localized html`, async ({ page }) => {
+		const problems = collectPageProblems(page);
+
+		await page.goto(example.url, { waitUntil: 'networkidle' });
+
+		await expect(page.locator('html')).toHaveAttribute('lang', example.lang);
+		await expect(page.getByRole('heading', { level: 1 })).toHaveText(example.heading);
+		await expect(page.getByText(example.bodyText, { exact: true })).toBeVisible();
+		await expect(page.getByText(example.footerText, { exact: true })).toBeVisible();
+		await expect(page.locator('#app')).toHaveCount(0);
 
 		expect(problems).toEqual([]);
 	});

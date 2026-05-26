@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "types": ["@cloudflare/workers-types"]
+  },
+  "vueCompilerOptions": {
+    "plugins": [
+      {
+        "name": "vite-vue-internationalization/volar",
+        "primaryLocale": "ja-JP",
+        "buildStrategy": "virtual",
+        "messageSyntax": "vue"
+      }
+    ]
+  },
+  "include": ["src", "vite.config.ts"]
+}

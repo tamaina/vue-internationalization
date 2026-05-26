@@ -37,5 +37,11 @@ export default defineConfig({
 			reuseExistingServer: !isCI,
 			timeout: 30_000,
 		},
+		{
+			command: 'pnpm --filter ./examples/cloudflare-worker-ssr exec vite preview --host 127.0.0.1 --port 4175 --strictPort',
+			url: 'http://127.0.0.1:4175/',
+			reuseExistingServer: !isCI,
+			timeout: 30_000,
+		},
 	],
 });

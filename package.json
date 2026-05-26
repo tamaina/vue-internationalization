@@ -52,7 +52,7 @@
     "docs:preview": "pnpm docs:prepare && vitepress preview docs",
     "example:icu": "pnpm build && pnpm --filter ./examples/icu dev",
     "example:vue": "pnpm build && pnpm --filter ./examples/vue dev",
-    "examples:smoke": "pnpm build && pnpm --filter ./examples/vue build && pnpm --filter ./examples/icu build && playwright test test/examples-smoke.spec.ts",
+    "examples:smoke": "pnpm build && pnpm --filter ./examples/vue build && pnpm --filter ./examples/icu build && pnpm --filter ./examples/cloudflare-worker-ssr build && playwright test test/examples-smoke.spec.ts",
     "lint": "eslint .",
     "prepublishOnly": "pnpm test && pnpm typecheck && pnpm lint && pnpm build",
     "test": "vitest run",

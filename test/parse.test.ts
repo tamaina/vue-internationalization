@@ -61,6 +61,27 @@ describe('locale SFC parsing', () => {
 		expect(output).toContain('$l: __createComponentLocalizer(import.meta.url)');
 	});
 
+	it('can inject a stable runtime module id instead of import.meta.url', () => {
+		const input = [
+			'<script setup lang="ts">',
+			'const x = 1;',
+			'</script>',
+			'<template>{{ $locale.sfc.hoge }}</template>',
+			'<locale locale="ja-JP" lang="yaml">',
+			'hoge: ほげ',
+			'</locale>',
+		].join('\n');
+
+		const output = transformVueSfc(input, '/repo/src/App.vue', {
+			moduleExpression: '"/src/App.vue"',
+		});
+
+		expect(output).toContain('const $locale = __useLocale<{}, { hoge: string; }>("/src/App.vue");');
+		expect(output).toContain('const $l = __useLocalizer("/src/App.vue") as Readonly<import("vue").ComputedRef<{ env: import("vite-vue-internationalization/runtime").LocaleLocalizerDictionary; sfc: { hoge: () => string; }; }>>;');
+		expect(output).toContain('$locale: __createComponentLocale<{ hoge: string; }>("/src/App.vue")');
+		expect(output).toContain('$l: __createComponentLocalizer("/src/App.vue")');
+	});
+
 	it('injects setup bindings for SFCs without locale sources when enabled', () => {
 		const input = [
 			'<script setup lang="ts">',

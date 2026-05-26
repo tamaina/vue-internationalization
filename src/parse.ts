@@ -184,7 +184,17 @@ export function stripLocaleBlocks(code: string, filename: string): string {
 	return next;
 }
 
-export function injectLocaleBinding(code: string, types: LocaleBindingTypes = {}): string {
+type LocaleBindingInjectionOptions = {
+	moduleExpression?: string;
+};
+
+type TransformVueSfcOptions = LocaleBindingTypes & LocaleBindingInjectionOptions;
+
+export function injectLocaleBinding(
+	code: string,
+	types: LocaleBindingTypes = {},
+	options: LocaleBindingInjectionOptions = {},
+): string {
 	const needsLocaleBinding = !hasLocaleBinding(code, '$locale');
 	const needsLocalizerBinding = !hasLocaleBinding(code, '$l');
 
@@ -199,11 +209,12 @@ export function injectLocaleBinding(code: string, types: LocaleBindingTypes = {}
 		: !scriptOpenTag || isTypeScriptScript(scriptOpenTag);
 	const typeParameters = shouldInjectTypes ? createUseLocaleTypeParameters(types, { global: 'runtime' }) : '';
 	const localizerType = shouldInjectTypes ? ` as ${createLocalizerRefType(types, { global: 'runtime' })}` : '';
+	const moduleExpression = options.moduleExpression ?? 'import.meta.url';
 	const injection = [
 		'',
 		'import { useLocale as __useLocale, useLocalizer as __useLocalizer } from "virtual:vite-vue-internationalization";',
-		needsLocaleBinding ? `const $locale = __useLocale${typeParameters}(import.meta.url);` : '',
-		needsLocalizerBinding ? `const $l = __useLocalizer(import.meta.url)${localizerType};` : '',
+		needsLocaleBinding ? `const $locale = __useLocale${typeParameters}(${moduleExpression});` : '',
+		needsLocalizerBinding ? `const $l = __useLocalizer(${moduleExpression})${localizerType};` : '',
 		'',
 	].filter((line, index, lines) => line.length > 0 || index === 0 || index === lines.length - 1).join('\n');
 
@@ -216,7 +227,7 @@ export function hasLocaleBinding(code: string, name: '$locale' | '$l'): boolean 
 		new RegExp(`\\bimport\\s*\\{[^}]*${escaped}(?:\\s+as\\s+[A-Za-z_$][\\w$]*)?[^}]*\\}\\s*from\\s*["'][^"']+["']`).test(code);
 }
 
-export function transformVueSfc(code: string, filename: string, types: LocaleBindingTypes = {}): string | undefined {
+export function transformVueSfc(code: string, filename: string, types: TransformVueSfcOptions = {}): string | undefined {
 	if (hasInjectedLocaleBinding(code)) {
 		return undefined;
 	}
@@ -231,13 +242,16 @@ export function transformVueSfc(code: string, filename: string, types: LocaleBin
 		...types,
 		module: getPrimaryLocaleDictionary(parsed.blocks, types.primaryLocale, parsed.scriptMessages),
 	};
-	const withSetupBinding = injectLocaleBinding(stripLocaleBlocks(code, filename), bindingTypes);
+	const moduleExpression = types.moduleExpression ?? 'import.meta.url';
+	const withSetupBinding = injectLocaleBinding(stripLocaleBlocks(code, filename), bindingTypes, { moduleExpression });
 
 	if (!hasLocaleDictionaryEntries(bindingTypes.module)) {
 		return withSetupBinding;
 	}
 
-	return injectComponentLocaleOptions(withSetupBinding, filename, bindingTypes);
+	return injectComponentLocaleOptions(withSetupBinding, filename, bindingTypes, {
+		moduleExpression,
+	});
 }
 
 export function hasLocaleDictionaryEntries(dictionary: LocaleDictionary | undefined): boolean {
@@ -298,6 +312,7 @@ export function injectComponentLocaleOptions(
 		importLine?: string;
 		localeExpression?: string;
 		localizerExpression?: string;
+		moduleExpression?: string;
 	} = {},
 ): string {
 	const result = parseSfc(code, { filename, pad: false });
@@ -310,8 +325,9 @@ export function injectComponentLocaleOptions(
 		: !setupOpenTag || isTypeScriptScript(setupOpenTag);
 	const scriptLangAttribute = scriptOpenTag ? '' : getScriptLangAttribute(setupOpenTag) ?? (shouldInjectTypes ? ' lang="ts"' : '');
 	const importLine = options.importLine ?? 'import { createComponentLocale as __createComponentLocale, createComponentLocalizer as __createComponentLocalizer } from "virtual:vite-vue-internationalization";';
-	const localeExpression = options.localeExpression ?? (shouldInjectTypes ? `__createComponentLocale<${localeType}>(import.meta.url)` : '__createComponentLocale(import.meta.url)');
-	const localizerExpression = options.localizerExpression ?? (shouldInjectTypes ? `__createComponentLocalizer(import.meta.url) as ${localizerType}` : '__createComponentLocalizer(import.meta.url)');
+	const moduleExpression = options.moduleExpression ?? 'import.meta.url';
+	const localeExpression = options.localeExpression ?? (shouldInjectTypes ? `__createComponentLocale<${localeType}>(${moduleExpression})` : `__createComponentLocale(${moduleExpression})`);
+	const localizerExpression = options.localizerExpression ?? (shouldInjectTypes ? `__createComponentLocalizer(${moduleExpression}) as ${localizerType}` : `__createComponentLocalizer(${moduleExpression})`);
 	const importSection = importLine.length > 0 ? `${importLine}\n\n` : '';
 	const optionLines = [
 		`$locale: ${localeExpression},`,

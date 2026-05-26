@@ -1,0 +1,6 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "vite-vue-internationalization-worker-ssr",
+  "main": "./src/worker.ts",
+  "compatibility_date": "2026-05-21"
+}

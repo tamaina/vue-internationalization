@@ -48,6 +48,7 @@ This supports type checking in `vue-tsc` and type annotations in the official Vu
 - [Messages](./messages.md): `<locale>` blocks, global dictionaries, locale-only SFCs, and script-defined messages
 - [Message Syntax](./message-syntax.md): `vue` syntax and `icu` syntax
 - [Build Strategy](./build-strategy.md): choosing between `virtual` and `inline-chunks`
+- [Backend HTML Rendering](./backend-rendering.md): render Vue to an HTML string in Vite SSR environments such as Cloudflare Workers
 - [API Reference](../api.md): generated from English JSDoc comments
 
 ## Links

@@ -198,7 +198,7 @@ export function vueInternationalization(options?: Partial<VueInternationalizatio
 
 			return null;
 		},
-		transform(code, id) {
+		transform(code, id, transformOptions) {
 			if (!id.endsWith('.vue') || !existsSync(id)) {
 				return null;
 			}
@@ -213,6 +213,7 @@ export function vueInternationalization(options?: Partial<VueInternationalizatio
 						global: globalMessages[currentOptions.primaryLocale],
 						messageSyntax: currentOptions.messageSyntax,
 						transformAll: currentOptions.sfcTransform === 'all',
+						moduleExpression: transformOptions?.ssr ? JSON.stringify(toRuntimeModuleId(id, root)) : undefined,
 					});
 
 			if (!transformed) {
