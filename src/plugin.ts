@@ -198,7 +198,7 @@ export function vueInternationalization(options?: Partial<VueInternationalizatio
 
 			return null;
 		},
-		transform(code, id, transformOptions) {
+		transform(code, id) {
 			if (!id.endsWith('.vue') || !existsSync(id)) {
 				return null;
 			}

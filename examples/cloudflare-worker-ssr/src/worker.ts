@@ -65,6 +65,6 @@ function escapeHtml(value: string): string {
 		'<': '&lt;',
 		'>': '&gt;',
 		'"': '&quot;',
-		"'": '&#39;',
+		'\'': '&#39;',
 	})[char] ?? char);
 }

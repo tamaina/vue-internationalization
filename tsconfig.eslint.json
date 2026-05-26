@@ -12,7 +12,9 @@
 		"test",
 		"vitest.config.ts",
 		"docs/vitepress.config.ts",
+		"examples/*/app/**/*.ts",
 		"examples/*/src/**/*.ts",
+		"examples/*/nuxt.config.ts",
 		"examples/*/vite.config.ts"
 	]
 }

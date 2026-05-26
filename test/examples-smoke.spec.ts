@@ -99,7 +99,7 @@ const nuxtExamples: NuxtExampleCase[] = [
 		url: 'http://127.0.0.1:3005/?locale=en-US',
 		heading: 'VVI with Nuxt',
 		greetingText: 'Hello VVI',
-		bodyText: "Vue SFC translations are loaded through Nuxt's Vite plugin configuration.",
+		bodyText: 'Vue SFC translations are loaded through Nuxt\'s Vite plugin configuration.',
 		countText: '3 items',
 	},
 	{
@@ -115,7 +115,7 @@ const nuxtExamples: NuxtExampleCase[] = [
 		url: 'http://127.0.0.1:3006/?locale=en-US',
 		heading: 'VVI with Nuxt',
 		greetingText: 'Hello VVI',
-		bodyText: "Vue SFC translations are loaded through Nuxt's Vite plugin configuration.",
+		bodyText: 'Vue SFC translations are loaded through Nuxt\'s Vite plugin configuration.',
 		countText: '3 items',
 	},
 ];
